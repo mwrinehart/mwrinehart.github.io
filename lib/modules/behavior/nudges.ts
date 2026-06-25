@@ -44,6 +44,8 @@ export async function createNudgeConfig(
     deliveryChannels?: string;
     slackChannel?: string;
     teamsWebhookId?: string;
+    icon?: string;
+    delayMs?: number;
   },
 ): Promise<void> {
   await db.insert(nudgeConfigs).values({
@@ -55,9 +57,22 @@ export async function createNudgeConfig(
     deliveryChannels: normalizeChannels(input.deliveryChannels ?? "device").join(",") || "device",
     slackChannel: input.slackChannel ?? null,
     teamsWebhookId: input.teamsWebhookId ?? null,
+    icon: input.icon ?? null,
+    delayMs: input.delayMs && input.delayMs > 0 ? input.delayMs : 5000,
     active: true,
     createdAt: Date.now(),
   });
+}
+
+// Active device-channel nudges served (read-only, deduped client-side) by the
+// public embeddable widget.
+export async function listActiveDeviceNudges(
+  orgId: string,
+): Promise<Array<{ id: string; title: string; message: string; icon: string; delayMs: number }>> {
+  const rows = await db.select().from(nudgeConfigs).where(and(eq(nudgeConfigs.orgId, orgId), eq(nudgeConfigs.active, true)));
+  return rows
+    .filter((n) => n.deliveryChannels.split(",").map((s) => s.trim()).includes("device"))
+    .map((n) => ({ id: n.id, title: n.title ?? "", message: n.message ?? "", icon: n.icon ?? "ℹ️", delayMs: n.delayMs }));
 }
 
 export interface SendNudgeResult {

@@ -1,11 +1,20 @@
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireTenant } from "@/lib/platform/org";
+import { getOrCreateWidgetKey, regenerateWidgetKey } from "@/lib/platform/orgs";
 import { createNudgeConfig, listNudgeConfigs, listNudgeEvents, sendNudge } from "@/lib/modules/behavior/nudges";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 
 export default async function NudgesPage() {
   const { orgId } = await requireTenant();
-  const [configs, events] = await Promise.all([listNudgeConfigs(orgId), listNudgeEvents(orgId)]);
+  const [configs, events, widgetKey, hdrs] = await Promise.all([
+    listNudgeConfigs(orgId),
+    listNudgeEvents(orgId),
+    getOrCreateWidgetKey(orgId),
+    headers(),
+  ]);
+  const origin = `https://${hdrs.get("host") ?? "your-app.example.com"}`;
+  const snippet = `<script src="${origin}/api/widget/${widgetKey}/script" async></script>`;
 
   async function createAction(formData: FormData) {
     "use server";
@@ -17,6 +26,8 @@ export default async function NudgesPage() {
       deliveryChannels: channels.join(",") || "device",
       slackChannel: String(formData.get("slackChannel") || "") || undefined,
       teamsWebhookId: String(formData.get("teamsWebhookId") || "") || undefined,
+      icon: String(formData.get("icon") || "") || undefined,
+      delayMs: Number(formData.get("delayMs") || 0) || undefined,
     });
     revalidatePath("/behavior/nudges");
   }
@@ -25,6 +36,13 @@ export default async function NudgesPage() {
     "use server";
     const { orgId } = await requireTenant("member");
     await sendNudge(orgId, String(formData.get("id") || ""));
+    revalidatePath("/behavior/nudges");
+  }
+
+  async function rotateKey() {
+    "use server";
+    const { orgId } = await requireTenant("admin");
+    await regenerateWidgetKey(orgId);
     revalidatePath("/behavior/nudges");
   }
 
@@ -63,6 +81,10 @@ export default async function NudgesPage() {
           <form action={createAction} className="space-y-2">
             <input name="title" placeholder="Title" required className="w-full rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
             <textarea name="message" placeholder="Message" required rows={3} className="w-full rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
+            <div className="flex gap-2">
+              <input name="icon" placeholder="Icon (emoji)" maxLength={4} className="w-28 rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
+              <input name="delayMs" type="number" min={0} placeholder="Device delay (ms)" className="flex-1 rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
+            </div>
             <div className="flex gap-4 text-sm text-jericho-muted">
               <label className="flex items-center gap-1.5"><input type="checkbox" name="ch_device" defaultChecked /> Device</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" name="ch_slack" /> Slack</label>
@@ -76,6 +98,24 @@ export default async function NudgesPage() {
           </form>
         </Panel>
       </div>
+
+      <Panel className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-medium">Embeddable device widget</h3>
+          <form action={rotateKey}>
+            <button className="text-sm text-jericho-muted hover:text-jericho-bad" type="submit">
+              Rotate key
+            </button>
+          </form>
+        </div>
+        <p className="text-xs text-jericho-muted mb-3">
+          Paste this snippet into your intranet/app. It shows this org&apos;s active <strong>device</strong> nudges as
+          toast reminders (deduped per browser). Rotating the key disables previously embedded snippets.
+        </p>
+        <pre className="overflow-x-auto rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-xs text-jericho-text">
+          <code>{snippet}</code>
+        </pre>
+      </Panel>
 
       <h3 className="text-sm uppercase tracking-wide text-jericho-muted mb-3">Delivery log</h3>
       {events.length === 0 ? (

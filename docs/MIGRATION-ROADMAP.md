@@ -52,11 +52,12 @@ Port CBM-Next's domain onto the spine.
    polling + HMAC-verified completion webhook). Litmos activate/poll run as cron
    jobs.
 
-**Phase 1 is feature-complete.** One small follow-up remains:
+8. ✅ **Device-nudge widget** — a public, CORS-open embeddable JS snippet
+   (`/api/widget/<key>/script`) scoped by a rotatable per-org widget key. It
+   renders the org's active device nudges as toast reminders, deduped per browser
+   via localStorage. Embed snippet + key rotation live on the Nudges page.
 
-8. **Device-nudge widget** — the public embeddable JS that renders queued device
-   nudges to end users (the `nudge_events` queue already exists; only the
-   browser-side widget + public endpoint are outstanding).
+**Phase 1 is complete** — the Behavior module fully covers CBM-Next's surface.
 
 Drop on the way in: CBM's retired tables (campaigns, SIEM, email-security) unless
 a connector still needs them.

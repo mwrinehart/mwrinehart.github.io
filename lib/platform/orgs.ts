@@ -2,7 +2,7 @@
 // onboarding, and the org switcher. Consolidates the org logic that Make, CBM,
 // and Mirage each implemented separately.
 
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { orgMembers, orgs, users, type OrgRow } from "./db/schema";
@@ -77,6 +77,35 @@ export async function getActiveOrgId(userId: string): Promise<string | null> {
 
 export async function setActiveOrg(userId: string, orgId: string): Promise<void> {
   await db.update(users).set({ activeOrgId: orgId }).where(eq(users.id, userId));
+}
+
+// ─── Embeddable widget key ────────────────────────────────────────────────────
+// Opaque per-org key that scopes unauthenticated widget reads (e.g. the device
+// nudge widget). It identifies an org without exposing its internal id and can be
+// rotated to revoke embedded widgets.
+
+function newWidgetKey(): string {
+  return `wk_${randomBytes(18).toString("hex")}`;
+}
+
+export async function getOrCreateWidgetKey(orgId: string): Promise<string> {
+  const rows = await db.select({ key: orgs.widgetPublicKey }).from(orgs).where(eq(orgs.id, orgId));
+  if (rows[0]?.key) return rows[0].key;
+  const key = newWidgetKey();
+  await db.update(orgs).set({ widgetPublicKey: key }).where(eq(orgs.id, orgId));
+  return key;
+}
+
+export async function regenerateWidgetKey(orgId: string): Promise<string> {
+  const key = newWidgetKey();
+  await db.update(orgs).set({ widgetPublicKey: key }).where(eq(orgs.id, orgId));
+  return key;
+}
+
+export async function resolveOrgIdByWidgetKey(key: string): Promise<string | null> {
+  if (!key) return null;
+  const rows = await db.select({ id: orgs.id }).from(orgs).where(eq(orgs.widgetPublicKey, key));
+  return rows[0]?.id ?? null;
 }
 
 // Create an org and make `ownerUserId` its owner. Used by onboarding.

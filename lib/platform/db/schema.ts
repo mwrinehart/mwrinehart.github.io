@@ -38,6 +38,8 @@ export const orgs = pgTable("orgs", {
   settings: text("settings"),
   // AES-256-GCM blob of third-party credentials (see lib/platform/secrets.ts).
   encryptedSecrets: text("encrypted_secrets"),
+  // Opaque public key used to scope unauthenticated embeddable widgets (nudges).
+  widgetPublicKey: text("widget_public_key"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 

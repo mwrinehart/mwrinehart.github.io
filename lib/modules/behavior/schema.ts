@@ -54,6 +54,8 @@ export const nudgeConfigs = pgTable("nudge_configs", {
   deliveryChannels: text("delivery_channels").notNull().default("device"), // csv: device,slack,teams,email
   slackChannel: text("slack_channel"),
   teamsWebhookId: text("teams_webhook_id"),
+  icon: text("icon"), // emoji shown by the device widget
+  delayMs: integer("delay_ms").notNull().default(5000), // device widget reveal delay
   active: boolean("active").notNull().default(true),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

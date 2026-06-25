@@ -61,9 +61,12 @@ export async function runMigrations(): Promise<void> {
         stripe_customer_id TEXT,
         settings TEXT,
         encrypted_secrets TEXT,
+        widget_public_key TEXT,
         created_at BIGINT NOT NULL
       );
+      ALTER TABLE orgs ADD COLUMN IF NOT EXISTS widget_public_key TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_slug ON orgs(slug);
+      CREATE INDEX IF NOT EXISTS idx_orgs_widget_key ON orgs(widget_public_key);
       CREATE TABLE IF NOT EXISTS org_members (
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL,

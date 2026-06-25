@@ -54,6 +54,8 @@ export async function migrateBehavior(client: PoolClient): Promise<void> {
       created_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_nudge_configs_org ON nudge_configs(org_id);
+    ALTER TABLE nudge_configs ADD COLUMN IF NOT EXISTS icon TEXT;
+    ALTER TABLE nudge_configs ADD COLUMN IF NOT EXISTS delay_ms INTEGER NOT NULL DEFAULT 5000;
 
     CREATE TABLE IF NOT EXISTS nudge_events (
       id TEXT PRIMARY KEY,
