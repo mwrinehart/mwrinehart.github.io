@@ -59,7 +59,9 @@ export function classifyItem(item: FeedItem, rules: KeywordRule[]): Classificati
     if (haystack.includes(rule.term.toLowerCase())) {
       matched.push(rule.term);
       if (rule.category) categories.add(rule.category);
-      const floor = rule.severityFloor ?? "medium";
+      // Category-only rules (no floor) tag without escalating; severity rules
+      // raise the floor. Highest matched floor wins.
+      const floor = rule.severityFloor ?? "low";
       if (SEVERITY_RANK[floor] > SEVERITY_RANK[severity]) severity = floor;
     }
   }

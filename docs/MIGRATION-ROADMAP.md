@@ -20,20 +20,34 @@ The runnable skeleton:
 
 ## Phase 1 — Behavior (CBM) to feature parity
 
-Port CBM-Next's domain onto the spine. Order:
+Port CBM-Next's domain onto the spine.
 
-1. **Data-source sync** — `data_source_configs` / `data_sync_runs` and the Jericho
-   app + Litmos connectors (CBM `routes/dataSources.js`). Ingest people, groups,
-   campaign/triage events → `behavior_people` + `behaviors`.
-2. **Risk scoring** — replace placeholder scores with CBM's scoring + the
-   `risk_score_history` trend, recomputed on sync.
-3. **Nudges** — `nudge_configs`/`nudge_events` delivery via the unified notifier
-   (device/Slack/Teams/email), schema already present.
-4. **Threat Pulse** — feeds, keyword rules, digests, auto-routes — running on the
-   shared feed engine; the scheduled scanner becomes a platform job.
-5. **Policy Center, Compliance frameworks, Maturity, Brand Protection, Reports** —
-   the remaining CBM pages.
-6. **Litmos training assignments** — assignment automation + completion webhook.
+**Delivered (this increment):**
+
+1. ✅ **Data-source sync** — `data_source_configs` / `data_sync_runs` + the Jericho
+   app and Litmos connectors (origin-allowlisted, deduped import ledgers). Ingests
+   people, groups, campaign/triage events; recomputes risk after each sync.
+   Sources page configures credentials + triggers sync.
+2. ✅ **Risk scoring** — derived from ingested signals (CBM had no formula; scores
+   came from an external service). Behaviors synthesized idempotently from campaign
+   "click" events; `risk_score_history` change-points + org trend. Manual recompute.
+3. ✅ **Threat Pulse** — feed + keyword-rule management, scan-now on the shared feed
+   engine (built-in CATEGORY/SEVERITY classifier), dedupe by link, and auto-route
+   of critical/high findings to Slack/Teams via the unified notifier.
+4. ✅ **Nudges** — `nudge_configs` CRUD + send across device/Slack/Teams with a
+   `nudge_events` delivery log.
+
+**Remaining in Phase 1:**
+
+5. **Background scheduling** — the always-on 15-min Pulse scan loop, hourly digest
+   tick, and the device-nudge widget. Next.js has no long-running worker, so this
+   becomes a **platform cron job** (a `/api/cron/*` route hit by a scheduler, or a
+   sidecar worker container on the Droplet).
+6. **Email transport** — wire nodemailer into the unified notifier so Pulse digests
+   and email nudges actually send (currently logged + skipped).
+7. **Remaining CBM pages** — Policy Center, Compliance frameworks, Maturity, Brand
+   Protection, Reports, and Litmos training-assignment automation + completion
+   webhook.
 
 Drop on the way in: CBM's retired tables (campaigns, SIEM, email-security) unless
 a connector still needs them.

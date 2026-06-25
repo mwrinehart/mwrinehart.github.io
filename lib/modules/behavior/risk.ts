@@ -10,10 +10,11 @@ import type { Severity } from "@/lib/platform/feeds";
 
 export type RiskBand = "low" | "medium" | "high" | "critical";
 
+// Bands align with CBM's high-risk threshold (>= 80 = critical/high-risk).
 export function riskBand(score: number): RiskBand {
-  if (score >= 75) return "critical";
-  if (score >= 50) return "high";
-  if (score >= 25) return "medium";
+  if (score >= 80) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 40) return "medium";
   return "low";
 }
 

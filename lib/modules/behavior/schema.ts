@@ -99,6 +99,124 @@ export const pulseFindings = pgTable("pulse_findings", {
   scannedAt: bigint("scanned_at", { mode: "number" }).notNull(),
 });
 
+// Org groups/teams (synced from external sources or created manually).
+export const behaviorGroups = pgTable("behavior_groups", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  externalId: text("external_id"), // tenant-scoped: "{orgId}:{provider}:{id}"
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+// ─── Data-source sync (ported from CBM dataSources.js) ────────────────────────
+export const dataSourceConfigs = pgTable("data_source_configs", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  provider: text("provider").notNull(), // jericho-app | litmos
+  name: text("name").notNull(),
+  baseUrl: text("base_url"),
+  enabled: boolean("enabled").notNull().default(true),
+  metadata: text("metadata"), // JSON: { paths?, source? }
+  lastSyncAt: bigint("last_sync_at", { mode: "number" }),
+  lastStatus: text("last_status"),
+  lastError: text("last_error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const dataSyncRuns = pgTable("data_sync_runs", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull().default("running"), // running | success | partial | failed
+  startedAt: bigint("started_at", { mode: "number" }).notNull(),
+  finishedAt: bigint("finished_at", { mode: "number" }),
+  summary: text("summary"), // JSON counts
+  error: text("error"),
+});
+
+// Imported event ledgers — deduped by (org_id, provider, external_id).
+export const importedCampaignEvents = pgTable("imported_campaign_events", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  provider: text("provider").notNull(),
+  externalId: text("external_id").notNull(),
+  campaignType: text("campaign_type"), // phishing | smishing | vishing
+  name: text("name"),
+  status: text("status"),
+  userEmail: text("user_email"),
+  userId: text("user_id"),
+  groupName: text("group_name"),
+  eventType: text("event_type"), // clicked | reported | opened | completed_training
+  eventAt: bigint("event_at", { mode: "number" }),
+  rawJson: text("raw_json"),
+  importedAt: bigint("imported_at", { mode: "number" }).notNull(),
+});
+
+export const triageEmailEvents = pgTable("triage_email_events", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  provider: text("provider").notNull(),
+  externalId: text("external_id").notNull(),
+  subject: text("subject"),
+  sender: text("sender"),
+  recipientEmail: text("recipient_email"),
+  verdict: text("verdict"), // malicious | suspicious | safe
+  severity: text("severity"),
+  status: text("status"),
+  reportedAt: bigint("reported_at", { mode: "number" }),
+  rawJson: text("raw_json"),
+  importedAt: bigint("imported_at", { mode: "number" }).notNull(),
+});
+
+export const importedLmsRecords = pgTable("imported_lms_records", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  provider: text("provider").notNull(),
+  recordType: text("record_type").notNull(), // user | team | course | learning_path
+  externalId: text("external_id").notNull(),
+  userEmail: text("user_email"),
+  title: text("title"),
+  status: text("status"),
+  score: integer("score"),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  rawJson: text("raw_json"),
+  importedAt: bigint("imported_at", { mode: "number" }).notNull(),
+});
+
+// ─── Threat Pulse: custom keyword rules + auto-route rules ─────────────────────
+export const pulseKeywords = pgTable("pulse_keywords", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  term: text("term").notNull(),
+  category: text("category"),
+  severityFloor: text("severity_floor"), // low | medium | high | critical
+  enabled: boolean("enabled").notNull().default(true),
+  matchCount: integer("match_count").notNull().default(0),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+export const pulseAutoRoutes = pgTable("pulse_auto_routes", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  severityMin: text("severity_min").notNull().default("critical"),
+  categories: text("categories"), // csv; null = all
+  channelProvider: text("channel_provider").notNull(), // slack | teams
+  channelTarget: text("channel_target").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  sentCount: integer("sent_count").notNull().default(0),
+  lastSentAt: bigint("last_sent_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 export type BehaviorPersonRow = typeof behaviorPeople.$inferSelect;
 export type BehaviorRow = typeof behaviors.$inferSelect;
 export type PulseFindingRow = typeof pulseFindings.$inferSelect;
+export type DataSourceConfigRow = typeof dataSourceConfigs.$inferSelect;
+export type DataSyncRunRow = typeof dataSyncRuns.$inferSelect;
+export type PulseKeywordRow = typeof pulseKeywords.$inferSelect;
+export type PulseAutoRouteRow = typeof pulseAutoRoutes.$inferSelect;
+export type NudgeConfigRow = typeof nudgeConfigs.$inferSelect;
+export type NudgeEventRow = typeof nudgeEvents.$inferSelect;

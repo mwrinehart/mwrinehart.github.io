@@ -3,11 +3,16 @@
 // — here they live once. Credentials resolve from the org's encrypted secrets,
 // falling back to platform-wide env defaults. Every send is recorded in
 // notification_log for audit.
+//
+// Channel behavior preserved from CBM:
+//   - Slack via BOT TOKEN (chat.postMessage) when `slackBotToken` is set; the
+//     target is a channel id. Otherwise a webhook URL is used (target = URL).
+//   - Teams via incoming WEBHOOK posting a MessageCard (target = webhook URL).
 
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { notificationLog } from "./db/schema";
-import { getOrgSecrets } from "./secrets";
+import { getOrgSecrets, type OrgSecrets } from "./secrets";
 import { str } from "./env";
 
 export type NotifyChannel = "slack" | "teams" | "email";
@@ -15,7 +20,7 @@ export type NotifyChannel = "slack" | "teams" | "email";
 export interface NotifyInput {
   orgId: string | null;
   channel: NotifyChannel;
-  /** Slack/Teams webhook URL, or recipient email. Falls back to org/env config. */
+  /** Slack channel id / webhook URL, Teams webhook URL, or recipient email. */
   target?: string;
   subject?: string;
   body: string;
@@ -28,38 +33,61 @@ export interface NotifyResult {
   error?: string;
 }
 
-async function resolveTarget(orgId: string | null, channel: NotifyChannel, explicit?: string): Promise<string | null> {
-  if (explicit) return explicit;
-  const secrets = orgId ? await getOrgSecrets(orgId) : {};
-  if (channel === "slack") return secrets.slackWebhook ?? str("SLACK_DEFAULT_WEBHOOK");
-  if (channel === "teams") return secrets.teamsWebhook ?? str("TEAMS_DEFAULT_WEBHOOK");
-  return secrets.smtpUrl ?? str("SMTP_URL");
-}
-
-async function postWebhook(url: string, payload: unknown): Promise<void> {
-  const res = await fetch(url, {
+async function sendSlack(secrets: OrgSecrets, target: string | undefined, input: NotifyInput): Promise<NotifyResult> {
+  const text = input.subject ? `*${input.subject}*\n${input.body}` : input.body;
+  const botToken = secrets.slackBotToken;
+  if (botToken) {
+    const channel = target || secrets.slackDefaultChannel;
+    if (!channel) return { status: "skipped", error: "no slack channel configured" };
+    const res = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${botToken}` },
+      body: JSON.stringify({ channel, text }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    return data.ok ? { status: "sent" } : { status: "failed", error: data.error || `http ${res.status}` };
+  }
+  const webhook = target || secrets.slackWebhook || str("SLACK_DEFAULT_WEBHOOK");
+  if (!webhook) return { status: "skipped", error: "no slack target configured" };
+  const res = await fetch(webhook, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new Error(`webhook ${res.status}`);
+  return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
+}
+
+async function sendTeams(secrets: OrgSecrets, target: string | undefined, input: NotifyInput): Promise<NotifyResult> {
+  const webhook = target || secrets.teamsWebhook || str("TEAMS_DEFAULT_WEBHOOK");
+  if (!webhook) return { status: "skipped", error: "no teams webhook configured" };
+  // MessageCard (preserved from CBM) — themeColor without leading '#'.
+  const card = {
+    "@type": "MessageCard",
+    "@context": "https://schema.org/extensions",
+    themeColor: "5a1fd5",
+    summary: input.subject || "Jericho notification",
+    title: input.subject,
+    text: input.body,
+  };
+  const res = await fetch(webhook, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(card),
+  });
+  return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
 
 export async function notify(input: NotifyInput): Promise<NotifyResult> {
   let result: NotifyResult = { status: "skipped" };
   try {
-    const target = await resolveTarget(input.orgId, input.channel, input.target);
-    if (!target) {
-      result = { status: "skipped", error: "no target configured" };
-    } else if (input.channel === "slack") {
-      await postWebhook(target, { text: input.subject ? `*${input.subject}*\n${input.body}` : input.body });
-      result = { status: "sent" };
+    const secrets = input.orgId ? await getOrgSecrets(input.orgId) : {};
+    if (input.channel === "slack") {
+      result = await sendSlack(secrets, input.target, input);
     } else if (input.channel === "teams") {
-      await postWebhook(target, { title: input.subject, text: input.body });
-      result = { status: "sent" };
+      result = await sendTeams(secrets, input.target, input);
     } else {
-      // Email transport (nodemailer) is added when the Compliance/CBM digests are
-      // ported; until then email sends are logged and skipped, never silently lost.
+      // Email transport (nodemailer SMTP) is wired when digests are ported; until
+      // then email sends are logged and skipped, never silently lost.
       result = { status: "skipped", error: "email transport not yet wired" };
     }
   } catch (err) {
