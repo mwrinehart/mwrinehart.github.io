@@ -211,6 +211,23 @@ export const pulseAutoRoutes = pgTable("pulse_auto_routes", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+// Scheduled email digests of pulse findings (sent by the pulse-digests cron job).
+export const pulseDigests = pgTable("pulse_digests", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  frequency: text("frequency").notNull().default("daily"), // daily | weekly
+  dayOfWeek: integer("day_of_week"), // 0-6, weekly only
+  hour: integer("hour").notNull().default(9), // 0-23 UTC
+  recipients: text("recipients").notNull(), // comma-separated emails
+  severityMin: text("severity_min").notNull().default("medium"),
+  categories: text("categories"), // csv; null = all
+  enabled: boolean("enabled").notNull().default(true),
+  lastRunAt: bigint("last_run_at", { mode: "number" }),
+  lastStatus: text("last_status"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 export type BehaviorPersonRow = typeof behaviorPeople.$inferSelect;
 export type BehaviorRow = typeof behaviors.$inferSelect;
 export type PulseFindingRow = typeof pulseFindings.$inferSelect;
@@ -220,3 +237,4 @@ export type PulseKeywordRow = typeof pulseKeywords.$inferSelect;
 export type PulseAutoRouteRow = typeof pulseAutoRoutes.$inferSelect;
 export type NudgeConfigRow = typeof nudgeConfigs.$inferSelect;
 export type NudgeEventRow = typeof nudgeEvents.$inferSelect;
+export type PulseDigestRow = typeof pulseDigests.$inferSelect;

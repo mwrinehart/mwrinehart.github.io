@@ -5,7 +5,8 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/api/health"];
+// /api/cron is authed by CRON_SECRET (not a session cookie), so it's allowed through.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/api/health", "/api/cron"];
 
 function hasSessionCookie(req: NextRequest): boolean {
   return req.cookies.has("authjs.session-token") || req.cookies.has("__Secure-authjs.session-token");

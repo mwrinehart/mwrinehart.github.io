@@ -10,6 +10,7 @@
 //   - Teams via incoming WEBHOOK posting a MessageCard (target = webhook URL).
 
 import { randomUUID } from "crypto";
+import nodemailer from "nodemailer";
 import { db } from "./db";
 import { notificationLog } from "./db/schema";
 import { getOrgSecrets, type OrgSecrets } from "./secrets";
@@ -24,6 +25,8 @@ export interface NotifyInput {
   target?: string;
   subject?: string;
   body: string;
+  /** Optional HTML body (email only). */
+  html?: string;
   /** Module id that triggered the send (for the audit log). */
   module?: string;
 }
@@ -77,6 +80,22 @@ async function sendTeams(secrets: OrgSecrets, target: string | undefined, input:
   return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
 
+async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: NotifyInput): Promise<NotifyResult> {
+  if (!to) return { status: "skipped", error: "no recipient" };
+  const url = secrets.smtpUrl || str("SMTP_URL");
+  if (!url) return { status: "skipped", error: "SMTP not configured" };
+  const from = secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
+  const transport = nodemailer.createTransport(url);
+  await transport.sendMail({
+    from,
+    to,
+    subject: input.subject || "Jericho notification",
+    text: input.body,
+    html: input.html,
+  });
+  return { status: "sent" };
+}
+
 export async function notify(input: NotifyInput): Promise<NotifyResult> {
   let result: NotifyResult = { status: "skipped" };
   try {
@@ -86,9 +105,7 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
     } else if (input.channel === "teams") {
       result = await sendTeams(secrets, input.target, input);
     } else {
-      // Email transport (nodemailer SMTP) is wired when digests are ported; until
-      // then email sends are logged and skipped, never silently lost.
-      result = { status: "skipped", error: "email transport not yet wired" };
+      result = await sendEmail(secrets, input.target, input);
     }
   } catch (err) {
     result = { status: "failed", error: err instanceof Error ? err.message : String(err) };

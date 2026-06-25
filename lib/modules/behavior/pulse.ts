@@ -248,6 +248,19 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
   return result;
 }
 
+// Global scan across every org that has at least one enabled feed. Driven by the
+// pulse-scan cron job.
+export async function scanAllOrgs(): Promise<{ orgs: number; added: number }> {
+  const feeds = await db.select({ orgId: pulseFeeds.orgId }).from(pulseFeeds).where(eq(pulseFeeds.enabled, true));
+  const orgIds = [...new Set(feeds.map((f) => f.orgId))];
+  let added = 0;
+  for (const orgId of orgIds) {
+    const r = await scanOrgFeeds(orgId);
+    added += r.added;
+  }
+  return { orgs: orgIds.length, added };
+}
+
 export function listFindings(orgId: string, limit = 50) {
   return db
     .select()

@@ -215,5 +215,22 @@ export async function migrateBehavior(client: PoolClient): Promise<void> {
       created_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_pulse_routes_org ON pulse_auto_routes(org_id);
+
+    CREATE TABLE IF NOT EXISTS pulse_digests (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      day_of_week INTEGER,
+      hour INTEGER NOT NULL DEFAULT 9,
+      recipients TEXT NOT NULL,
+      severity_min TEXT NOT NULL DEFAULT 'medium',
+      categories TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_run_at BIGINT,
+      last_status TEXT,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pulse_digests_org ON pulse_digests(org_id);
   `);
 }

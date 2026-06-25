@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // Keep native / heavy server-only packages out of the bundle so they load
   // from node_modules at runtime. `pg` is native; more will be added here as
   // modules port their heavy server deps (doc parsers, saml-jackson, etc.).
-  serverExternalPackages: ["pg"],
+  serverExternalPackages: ["pg", "nodemailer"],
   outputFileTracingIncludes: {
     "/*": ["./node_modules/jose/**/*", "./node_modules/openid-client/**/*"],
   },

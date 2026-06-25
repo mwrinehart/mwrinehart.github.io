@@ -116,6 +116,16 @@ export async function runMigrations(): Promise<void> {
         error TEXT,
         created_at BIGINT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS cron_runs (
+        id TEXT PRIMARY KEY,
+        job TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at BIGINT NOT NULL,
+        finished_at BIGINT,
+        summary TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job, started_at DESC);
     `);
 
     for (const migrate of MODULE_MIGRATORS) {

@@ -85,6 +85,23 @@ jobs:
           script: cd /opt/jericho-platform && ./deploy/deploy.sh
 ```
 
+## Scheduled jobs (cron)
+
+The platform has no in-process worker; scheduled work runs as named jobs invoked
+by an external scheduler hitting `/api/cron/<job>` with the `CRON_SECRET`. Set
+`CRON_SECRET` in `.env`, then add a crontab on the Droplet:
+
+```cron
+# every 15 minutes: scan all orgs' threat-pulse feeds + auto-route critical findings
+*/15 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-scan
+# hourly: send any pulse digests due this hour
+0 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-digests
+```
+
+`GET /api/cron/all` runs every registered job; an unknown job returns the job
+list. Each run is recorded in the `cron_runs` table. The endpoint returns 401
+until `CRON_SECRET` is set, and the comparison is constant-time.
+
 ## Backups & ops
 
 - **Database**: persisted in the `pgdata` Docker volume. Schedule

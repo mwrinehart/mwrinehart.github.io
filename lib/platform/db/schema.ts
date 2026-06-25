@@ -104,6 +104,17 @@ export const notificationLog = pgTable("notification_log", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+// Append-only log of scheduled-job executions (platform cron layer).
+export const cronRuns = pgTable("cron_runs", {
+  id: text("id").primaryKey(),
+  job: text("job").notNull(),
+  status: text("status").notNull(), // success | failed
+  startedAt: bigint("started_at", { mode: "number" }).notNull(),
+  finishedAt: bigint("finished_at", { mode: "number" }),
+  summary: text("summary"),
+  error: text("error"),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
 export type OrgMemberRow = typeof orgMembers.$inferSelect;

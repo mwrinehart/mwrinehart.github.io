@@ -37,17 +37,21 @@ Port CBM-Next's domain onto the spine.
 4. ✅ **Nudges** — `nudge_configs` CRUD + send across device/Slack/Teams with a
    `nudge_events` delivery log.
 
+5. ✅ **Background scheduling** — platform cron layer (`lib/platform/cron.ts` + job
+   registry + `cron_runs` log + secured `/api/cron/<job>` endpoint). Behavior
+   registers `pulse-scan` (all orgs) and `pulse-digests` (hourly tick). An external
+   scheduler (Droplet crontab) drives cadence. The device-nudge widget remains a
+   follow-up.
+6. ✅ **Email transport** — nodemailer wired into the unified notifier; Pulse
+   digests (`pulse_digests`) and email nudges now send.
+
 **Remaining in Phase 1:**
 
-5. **Background scheduling** — the always-on 15-min Pulse scan loop, hourly digest
-   tick, and the device-nudge widget. Next.js has no long-running worker, so this
-   becomes a **platform cron job** (a `/api/cron/*` route hit by a scheduler, or a
-   sidecar worker container on the Droplet).
-6. **Email transport** — wire nodemailer into the unified notifier so Pulse digests
-   and email nudges actually send (currently logged + skipped).
 7. **Remaining CBM pages** — Policy Center, Compliance frameworks, Maturity, Brand
    Protection, Reports, and Litmos training-assignment automation + completion
    webhook.
+8. **Device-nudge widget** — the public embeddable JS that renders queued device
+   nudges to end users.
 
 Drop on the way in: CBM's retired tables (campaigns, SIEM, email-security) unless
 a connector still needs them.
