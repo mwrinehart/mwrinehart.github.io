@@ -86,9 +86,14 @@ proper module on the shared spine.
   severity, optional category filter) to Slack/Teams/email via the **unified
   notifier**, fired in-band as the scan inserts findings.
 
+- ✅ **Custom keywords + composite scoring + feedback learning** — per-tenant
+  keyword rules augment the classifier; findings get a composite relevance score
+  (severity + keyword density + recency + learned affinity) and sort by it;
+  useful/not-useful votes build a preference model that re-ranks future findings.
+  Keywords/tuning tab shows match counts + what the model learned.
+
 **Remaining in Phase 2:**
 
-- **Custom keyword rules + composite scoring + feedback learning** per tenant.
 - **Federal Register / breach-portal / OIG** ingestion connectors.
 - **SharePoint / Power Automate** as additional alert channels (replacing
   `sharepoint-sync.js` / `powerautomate-sync.js`).

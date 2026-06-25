@@ -55,6 +55,34 @@ export const complianceFindings = pgTable("compliance_findings", {
   aiActions: text("ai_actions"), // JSON string[]
   mappedPolicies: text("mapped_policies"), // JSON [{reference,title,why}]
   analyzedAt: bigint("analyzed_at", { mode: "number" }),
+  // Composite relevance score (0–100) at scan time; findings sort by this.
+  score: integer("score").notNull().default(0),
+});
+
+// Per-tenant keyword rules that augment the built-in classifier.
+export const complianceKeywords = pgTable("compliance_keywords", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  term: text("term").notNull(),
+  category: text("category"),
+  severityFloor: text("severity_floor"), // low | medium | high | critical
+  enabled: boolean("enabled").notNull().default(true),
+  matchCount: integer("match_count").notNull().default(0),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+// Useful / not-useful votes on findings. Snapshots the finding's signals so the
+// preference model can learn affinities by category / feed / keyword.
+export const complianceFeedback = pgTable("compliance_feedback", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  findingId: text("finding_id").notNull(),
+  vote: text("vote").notNull(), // useful | not_useful
+  category: text("category"),
+  feedName: text("feed_name"),
+  severity: text("severity"),
+  keywords: text("keywords"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 // Instant alert routes — push critical/high findings to Slack/Teams/email.
@@ -76,3 +104,4 @@ export type ComplianceFeedRow = typeof complianceFeeds.$inferSelect;
 export type CompliancePolicyRow = typeof compliancePolicies.$inferSelect;
 export type ComplianceFindingRow = typeof complianceFindings.$inferSelect;
 export type ComplianceAutoRouteRow = typeof complianceAutoRoutes.$inferSelect;
+export type ComplianceKeywordRow = typeof complianceKeywords.$inferSelect;

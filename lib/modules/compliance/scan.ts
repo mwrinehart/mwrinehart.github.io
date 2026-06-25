@@ -8,7 +8,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
-import { complianceAutoRoutes, complianceFeeds, complianceFindings, compliancePolicies } from "./schema";
+import { buildPreferenceModel, scoreFinding } from "./scoring";
+import { complianceAutoRoutes, complianceFeeds, complianceFindings, complianceKeywords, compliancePolicies } from "./schema";
 
 // Built-in compliance/regulatory classifier. Tenants don't have to configure
 // keywords; these give scanned items sensible severity + category out of the box.
@@ -95,6 +96,35 @@ export async function deletePolicy(orgId: string, id: string): Promise<void> {
   await db.delete(compliancePolicies).where(and(eq(compliancePolicies.orgId, orgId), eq(compliancePolicies.id, id)));
 }
 
+// ─── custom keywords ──────────────────────────────────────────────────────────
+
+export function listKeywords(orgId: string) {
+  return db.select().from(complianceKeywords).where(eq(complianceKeywords.orgId, orgId)).orderBy(desc(complianceKeywords.createdAt));
+}
+
+export async function addKeyword(
+  orgId: string,
+  input: { term: string; category?: string; severityFloor?: Severity },
+): Promise<void> {
+  await db.insert(complianceKeywords).values({
+    id: randomUUID(),
+    orgId,
+    term: input.term.trim(),
+    category: input.category ?? null,
+    severityFloor: input.severityFloor ?? null,
+    enabled: true,
+    createdAt: Date.now(),
+  });
+}
+
+export async function deleteKeyword(orgId: string, id: string): Promise<void> {
+  await db.delete(complianceKeywords).where(and(eq(complianceKeywords.orgId, orgId), eq(complianceKeywords.id, id)));
+}
+
+export async function setKeywordEnabled(orgId: string, id: string, enabled: boolean): Promise<void> {
+  await db.update(complianceKeywords).set({ enabled }).where(and(eq(complianceKeywords.orgId, orgId), eq(complianceKeywords.id, id)));
+}
+
 // ─── alert auto-routes ────────────────────────────────────────────────────────
 
 export function listAutoRoutes(orgId: string) {
@@ -166,7 +196,7 @@ export function listFindings(orgId: string, limit = 50) {
     .select()
     .from(complianceFindings)
     .where(eq(complianceFindings.orgId, orgId))
-    .orderBy(desc(complianceFindings.scannedAt))
+    .orderBy(desc(complianceFindings.score), desc(complianceFindings.scannedAt))
     .limit(limit);
 }
 
@@ -180,13 +210,31 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
   const feeds = (await listFeeds(orgId)).filter((f) => f.enabled);
   const result: ScanResult = { scannedFeeds: 0, added: 0, errors: [] };
 
+  // Tenant tuning: custom keywords augment the built-in classifier, and the
+  // preference model (from past votes) tilts the composite score.
+  const custom = (await listKeywords(orgId)).filter((k) => k.enabled);
+  const rules: KeywordRule[] = [
+    ...DEFAULT_RULES,
+    ...custom.map((k) => ({ term: k.term, category: k.category ?? undefined, severityFloor: (k.severityFloor as Severity) ?? undefined })),
+  ];
+  const customByTerm = new Map(custom.map((k) => [k.term.toLowerCase(), k.id]));
+  const matchTally = new Map<string, number>(); // keyword id → times matched
+  const model = await buildPreferenceModel(orgId);
+  const now = Date.now();
+
   for (const feed of feeds) {
     try {
       const items = await scanFeed(feed.url, feed.name);
       result.scannedFeeds++;
       for (const item of items) {
         if (!item.link) continue;
-        const c = classifyItem(item, DEFAULT_RULES);
+        const c = classifyItem(item, rules);
+        const publishedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
+        const score = scoreFinding(
+          { severity: c.severity, category: c.categories[0] ?? null, feedName: feed.name, matched: c.matched, publishedAt },
+          model,
+          now,
+        );
         const inserted = await db
           .insert(complianceFindings)
           .values({
@@ -200,13 +248,18 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
             severity: c.severity,
             category: c.categories[0] ?? null,
             keywords: c.matched.join(", ") || null,
-            publishedAt: item.publishedAt ? new Date(item.publishedAt).getTime() : null,
-            scannedAt: Date.now(),
+            publishedAt,
+            scannedAt: now,
+            score,
           })
           .onConflictDoNothing()
           .returning({ id: complianceFindings.id });
         if (inserted.length > 0) {
           result.added++;
+          for (const term of c.matched) {
+            const id = customByTerm.get(term.toLowerCase());
+            if (id) matchTally.set(id, (matchTally.get(id) ?? 0) + 1);
+          }
           await dispatchAutoRoutes(orgId, {
             title: item.title,
             link: item.link,
@@ -216,13 +269,20 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
           });
         }
       }
-      await db.update(complianceFeeds).set({ lastScannedAt: Date.now(), lastError: null }).where(eq(complianceFeeds.id, feed.id));
+      await db.update(complianceFeeds).set({ lastScannedAt: now, lastError: null }).where(eq(complianceFeeds.id, feed.id));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(`${feed.name}: ${msg}`);
-      await db.update(complianceFeeds).set({ lastScannedAt: Date.now(), lastError: msg }).where(eq(complianceFeeds.id, feed.id));
+      await db.update(complianceFeeds).set({ lastScannedAt: now, lastError: msg }).where(eq(complianceFeeds.id, feed.id));
     }
   }
+
+  // Persist how often each custom keyword fired (visible on the Keywords tab).
+  for (const [id, count] of matchTally) {
+    const row = custom.find((k) => k.id === id);
+    if (row) await db.update(complianceKeywords).set({ matchCount: row.matchCount + count }).where(eq(complianceKeywords.id, id));
+  }
+
   return result;
 }
 

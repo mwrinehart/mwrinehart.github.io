@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requireTenant } from "@/lib/platform/org";
 import { listFeeds, listFindings, scanOrgComplianceFeeds } from "@/lib/modules/compliance/scan";
 import { aiKeyFor, analyzeFinding, analyzeNewFindings } from "@/lib/modules/compliance/analyze";
+import { recordFeedback, votesByFinding } from "@/lib/modules/compliance/feedback";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 
 function parseStrArray(json: string | null): string[] {
@@ -28,7 +29,12 @@ function parsePolicies(json: string | null): Array<{ reference?: string; title?:
 // Compliance Radar — findings, with AI summaries + policy cross-reference.
 export default async function ComplianceFindingsPage() {
   const { orgId } = await requireTenant();
-  const [feeds, findings, aiKey] = await Promise.all([listFeeds(orgId), listFindings(orgId), aiKeyFor(orgId)]);
+  const [feeds, findings, aiKey, votes] = await Promise.all([
+    listFeeds(orgId),
+    listFindings(orgId),
+    aiKeyFor(orgId),
+    votesByFinding(orgId),
+  ]);
   const hasFeeds = feeds.some((f) => f.enabled);
   const aiAvailable = !!aiKey;
   const unanalyzed = findings.some((f) => !f.analyzedAt);
@@ -49,6 +55,13 @@ export default async function ComplianceFindingsPage() {
     "use server";
     const { orgId } = await requireTenant("member");
     await analyzeNewFindings(orgId, 10);
+    revalidatePath("/compliance");
+  }
+  async function vote(formData: FormData) {
+    "use server";
+    const { orgId } = await requireTenant("member");
+    const v = String(formData.get("vote") || "");
+    await recordFeedback(orgId, String(formData.get("id") || ""), v === "useful" ? "useful" : "not_useful");
     revalidatePath("/compliance");
   }
 
@@ -105,12 +118,13 @@ export default async function ComplianceFindingsPage() {
           {findings.map((f) => {
             const actions = parseStrArray(f.aiActions);
             const mapped = parsePolicies(f.mappedPolicies);
+            const v = votes[f.id];
             return (
               <Panel key={f.id}>
                 <div className="flex items-center gap-2">
                   <Badge tone={f.severity === "low" ? "low" : f.severity === "medium" ? "medium" : "high"}>{f.severity}</Badge>
                   {f.category && <span className="text-xs text-jericho-muted">{f.category}</span>}
-                  <span className="ml-auto text-xs text-jericho-muted">{f.feedName}</span>
+                  <span className="ml-auto text-xs text-jericho-muted">score {f.score} · {f.feedName}</span>
                 </div>
                 <a href={f.link ?? "#"} target="_blank" rel="noreferrer" className="block font-medium mt-1 hover:text-jericho-accent">
                   {f.title}
@@ -150,6 +164,24 @@ export default async function ComplianceFindingsPage() {
                     )}
                   </div>
                 )}
+
+                <div className="mt-3 flex items-center gap-3 text-xs">
+                  <span className="text-jericho-muted">Useful?</span>
+                  <form action={vote}>
+                    <input type="hidden" name="id" value={f.id} />
+                    <input type="hidden" name="vote" value="useful" />
+                    <button className={v === "useful" ? "text-jericho-good" : "text-jericho-muted hover:text-jericho-good"} type="submit" aria-label="useful">
+                      👍
+                    </button>
+                  </form>
+                  <form action={vote}>
+                    <input type="hidden" name="id" value={f.id} />
+                    <input type="hidden" name="vote" value="not_useful" />
+                    <button className={v === "not_useful" ? "text-jericho-bad" : "text-jericho-muted hover:text-jericho-bad"} type="submit" aria-label="not useful">
+                      👎
+                    </button>
+                  </form>
+                </div>
               </Panel>
             );
           })}
