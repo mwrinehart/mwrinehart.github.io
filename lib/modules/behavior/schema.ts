@@ -238,3 +238,145 @@ export type PulseAutoRouteRow = typeof pulseAutoRoutes.$inferSelect;
 export type NudgeConfigRow = typeof nudgeConfigs.$inferSelect;
 export type NudgeEventRow = typeof nudgeEvents.$inferSelect;
 export type PulseDigestRow = typeof pulseDigests.$inferSelect;
+
+// ─── Policy Center ────────────────────────────────────────────────────────────
+// Document-blob upload is deferred to the platform object-storage follow-up;
+// policies carry text content + document metadata for now.
+export const policies = pgTable("policies", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  title: text("title").notNull(),
+  category: text("category"),
+  content: text("content"),
+  version: text("version").notNull().default("1.0"),
+  status: text("status").notNull().default("active"),
+  active: boolean("active").notNull().default(true),
+  documentName: text("document_name"),
+  documentMime: text("document_mime"),
+  documentSize: integer("document_size"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const policyAcknowledgments = pgTable("policy_acknowledgments", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  policyId: text("policy_id").notNull(),
+  userId: text("user_id").notNull(),
+  acknowledgedAt: bigint("acknowledged_at", { mode: "number" }).notNull(),
+});
+
+// ─── Compliance frameworks (GRC control evidence — distinct from the Compliance
+// MODULE's regulatory feed scanning) ──────────────────────────────────────────
+export const complianceFrameworks = pgTable("compliance_frameworks", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  version: text("version"),
+  description: text("description"),
+  status: text("status"),
+  score: integer("score").notNull().default(0),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+export const complianceEvidence = pgTable("compliance_evidence", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  frameworkId: text("framework_id").notNull(),
+  controlId: text("control_id"),
+  description: text("description"),
+  status: text("status").notNull().default("pending"), // pending | submitted | approved
+  submittedAt: bigint("submitted_at", { mode: "number" }).notNull(),
+});
+
+// ─── Maturity ─────────────────────────────────────────────────────────────────
+export const maturityFrameworks = pgTable("maturity_frameworks", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  version: text("version"),
+  description: text("description"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+export const maturityControls = pgTable("maturity_controls", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  frameworkId: text("framework_id").notNull(),
+  domain: text("domain"),
+  name: text("name"),
+  score: integer("score"), // nullable until assessed (0-5)
+  notes: text("notes"),
+  assessedAt: bigint("assessed_at", { mode: "number" }),
+});
+
+export const maturitySnapshots = pgTable("maturity_snapshots", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  frameworkId: text("framework_id").notNull(),
+  avgScore: integer("avg_score").notNull(),
+  recordedAt: bigint("recorded_at", { mode: "number" }).notNull(),
+});
+
+// ─── Brand protection ─────────────────────────────────────────────────────────
+export const brandDomains = pgTable("brand_domains", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  domain: text("domain").notNull(),
+  brand: text("brand"),
+  threatScore: integer("threat_score").notNull().default(0),
+  lastChecked: bigint("last_checked", { mode: "number" }),
+  detectedAt: bigint("detected_at", { mode: "number" }).notNull(),
+});
+
+export const brandImpersonations = pgTable("brand_impersonations", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  type: text("type"),
+  source: text("source"),
+  description: text("description"),
+  severity: text("severity").notNull().default("medium"),
+  brand: text("brand"),
+  status: text("status").notNull().default("open"), // open | resolved
+  detectedAt: bigint("detected_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }),
+});
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+export const savedReports = pgTable("saved_reports", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title"),
+  dateRange: text("date_range"),
+  format: text("format").notNull().default("json"),
+  status: text("status").notNull().default("ready"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+// ─── Litmos training assignments ──────────────────────────────────────────────
+export const litmosAssignments = pgTable("litmos_assignments", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  userEmail: text("user_email"),
+  userName: text("user_name"),
+  litmosUserId: text("litmos_user_id"),
+  litmosCourseId: text("litmos_course_id").notNull(),
+  litmosCourseName: text("litmos_course_name"),
+  assignedBy: text("assigned_by"),
+  assignedAt: bigint("assigned_at", { mode: "number" }).notNull(),
+  scheduledFor: bigint("scheduled_for", { mode: "number" }),
+  dueDate: bigint("due_date", { mode: "number" }),
+  activatedAt: bigint("activated_at", { mode: "number" }),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  score: integer("score"),
+  status: text("status").notNull().default("pending"), // pending|scheduled|active|completed|failed|cancelled
+  litmosResponse: text("litmos_response"),
+  notes: text("notes"),
+});
+
+export type PolicyRow = typeof policies.$inferSelect;
+export type ComplianceFrameworkRow = typeof complianceFrameworks.$inferSelect;
+export type MaturityControlRow = typeof maturityControls.$inferSelect;
+export type BrandImpersonationRow = typeof brandImpersonations.$inferSelect;
+export type LitmosAssignmentRow = typeof litmosAssignments.$inferSelect;

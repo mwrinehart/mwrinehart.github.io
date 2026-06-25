@@ -9,6 +9,12 @@ const TABS = [
   { href: "/behavior/behaviors", label: "Behaviors" },
   { href: "/behavior/pulse", label: "Threat Pulse" },
   { href: "/behavior/nudges", label: "Nudges" },
+  { href: "/behavior/policies", label: "Policies" },
+  { href: "/behavior/frameworks", label: "Frameworks" },
+  { href: "/behavior/maturity", label: "Maturity" },
+  { href: "/behavior/brand", label: "Brand" },
+  { href: "/behavior/litmos", label: "Litmos" },
+  { href: "/behavior/reports", label: "Reports" },
   { href: "/behavior/sources", label: "Sources" },
 ];
 

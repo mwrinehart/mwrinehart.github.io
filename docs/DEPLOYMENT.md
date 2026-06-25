@@ -96,6 +96,10 @@ by an external scheduler hitting `/api/cron/<job>` with the `CRON_SECRET`. Set
 */15 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-scan
 # hourly: send any pulse digests due this hour
 0 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-digests
+# every minute: activate scheduled Litmos assignments that are now due
+* * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/litmos-activate
+# every 5 minutes: poll Litmos for assignment completions
+*/5 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/litmos-poll
 ```
 
 `GET /api/cron/all` runs every registered job; an unknown job returns the job

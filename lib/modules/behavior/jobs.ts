@@ -5,6 +5,7 @@
 import type { CronJob } from "@/lib/platform/cron";
 import { scanAllOrgs } from "./pulse";
 import { tickDigests } from "./digests";
+import { activateScheduled, pollCompletions } from "./litmos";
 
 export const behaviorCronJobs: CronJob[] = [
   {
@@ -16,5 +17,15 @@ export const behaviorCronJobs: CronJob[] = [
     id: "pulse-digests",
     description: "Hourly tick: email scheduled pulse digests that are due this hour.",
     run: () => tickDigests(),
+  },
+  {
+    id: "litmos-activate",
+    description: "Activate scheduled Litmos assignments whose start time has arrived.",
+    run: () => activateScheduled(),
+  },
+  {
+    id: "litmos-poll",
+    description: "Poll Litmos for completion of active assignments.",
+    run: () => pollCompletions(),
   },
 ];

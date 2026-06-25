@@ -45,13 +45,18 @@ Port CBM-Next's domain onto the spine.
 6. ✅ **Email transport** — nodemailer wired into the unified notifier; Pulse
    digests (`pulse_digests`) and email nudges now send.
 
-**Remaining in Phase 1:**
+7. ✅ **Remaining CBM pages** — Policy Center (policies + acknowledgments),
+   Compliance Frameworks (control evidence), Maturity (0–5 scoring + snapshots),
+   Brand Protection (domains + impersonations), Reports (cross-domain snapshot +
+   saved reports), and Litmos training (assign + scheduled activation + completion
+   polling + HMAC-verified completion webhook). Litmos activate/poll run as cron
+   jobs.
 
-7. **Remaining CBM pages** — Policy Center, Compliance frameworks, Maturity, Brand
-   Protection, Reports, and Litmos training-assignment automation + completion
-   webhook.
+**Phase 1 is feature-complete.** One small follow-up remains:
+
 8. **Device-nudge widget** — the public embeddable JS that renders queued device
-   nudges to end users.
+   nudges to end users (the `nudge_events` queue already exists; only the
+   browser-side widget + public endpoint are outstanding).
 
 Drop on the way in: CBM's retired tables (campaigns, SIEM, email-security) unless
 a connector still needs them.
