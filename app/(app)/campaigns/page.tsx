@@ -11,8 +11,8 @@ export default async function CampaignsPage() {
         "Mission control with policy gates and agent autonomy modes (go/review/blocked)",
         "Expansion approval workflow with risk scoring and legal/opsec sign-off",
         "Persona warming and OSINT target workbench",
-        "Immutable, actor-aware audit log and jurisdiction compliance checks",
-        "Commercial vs. DoD tenant copy (folds into platform tenancy)",
+        "Immutable, actor-aware audit log and compliance checks",
+        "Commercial product — Mirage's gov/DoD tenant class and classification banners are dropped",
       ]}
     />
   );

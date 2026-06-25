@@ -1,0 +1,6 @@
+# Caddy auto-provisions TLS for {$DOMAIN} (set DOMAIN in .env). On localhost it
+# serves plain HTTP. All traffic proxies to the app container on :3000.
+{$DOMAIN:localhost} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

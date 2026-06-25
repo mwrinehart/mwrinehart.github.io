@@ -1,0 +1,57 @@
+# Single-box deployment for a DigitalOcean Droplet: the app (Next.js standalone),
+# PostgreSQL, and Caddy (TLS + reverse proxy) on one Docker network. Postgres is
+# not published to the host — only Caddy exposes 80/443.
+#
+# Secrets (AUTH_SECRET, PLATFORM_MASTER_KEY, ANTHROPIC_API_KEY, DOMAIN, …) come
+# from a .env file on the Droplet — never committed. See docs/DEPLOYMENT.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: jericho
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      # Internal connection to the db service; sslmode=disable so the pg client
+      # skips TLS on the private Docker network.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/jericho?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -63,8 +63,8 @@ platform layer (shared by all modules), not the module.
 
 Port Mirage's campaign builder, mission control + policy gates, expansion
 approvals, personas/OSINT, audit log, and compliance dashboard. Migrate its
-Prisma/SQLite models to Drizzle/Postgres. Commercial-vs-DoD tenant copy folds into
-platform tenancy + per-org settings.
+Prisma/SQLite models to Drizzle/Postgres. **Commercial product** — Mirage's
+gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 
 ## Cross-cutting platform follow-ups
 
@@ -81,15 +81,16 @@ These benefit every module and aren't owned by one:
   pipeline as parity work; it's the top handoff recommendation across all four.
 - **Invites + member management UI** — schema exists; build the admin console.
 
+## Resolved decisions
+
+- **Hosting → DigitalOcean Droplet.** Docker Compose (app + Postgres + Caddy) on
+  one Droplet. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
+- **Commercial product, no gov/DoD.** Mirage's DoD tenant class and
+  classification features are dropped from the Campaigns module.
+
 ## Open decisions (need product input)
 
-1. **Hosting** — this repo is `mwrinehart.github.io` (GitHub Pages = static only).
-   A Postgres server app needs Node hosting. Target: managed Node + Postgres
-   (Vercel + Neon/Supabase, or the existing Droplet/Docker setup)?
-2. **Module entitlements / packaging** — are modules sold separately (plan-gated)
+1. **Module entitlements / packaging** — are modules sold separately (plan-gated)
    or is it one suite? Drives `org_settings.enabled_modules` + billing.
-3. **Mirage isolation** — its gov/DoD posture may need stricter tenant isolation
-   (separate deployment/classification) than commercial modules. Confirm before
-   Phase 4.
-4. **Data migration** — do we backfill existing CBM/Horizon SQLite data into
+2. **Data migration** — do we backfill existing CBM/Horizon SQLite data into
    Postgres, or start fresh per tenant?

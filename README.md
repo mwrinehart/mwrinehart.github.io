@@ -63,7 +63,16 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design,
 [`docs/MODULE-CONVENTIONS.md`](docs/MODULE-CONVENTIONS.md) for how to add the next
 module.
 
-> **Note on hosting:** this repo's name (`mwrinehart.github.io`) implies GitHub
-> Pages, which serves static sites only. This is a Postgres-backed server app and
-> needs Node hosting (the source apps deployed to VPS/Droplet + Docker). Hosting
-> is an open decision — see the roadmap.
+## Deployment
+
+Ships to a **DigitalOcean Droplet** as three containers (app + Postgres + Caddy)
+via `docker-compose.yml`. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+```bash
+cp .env.example .env   # set DOMAIN, AUTH_SECRET, PLATFORM_MASTER_KEY, POSTGRES_PASSWORD
+docker compose up -d --build
+```
+
+> The repo name (`mwrinehart.github.io`) implies GitHub Pages, which serves
+> static sites only — this Postgres-backed server app runs on the Droplet
+> instead, not Pages.

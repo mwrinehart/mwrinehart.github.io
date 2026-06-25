@@ -1,0 +1,94 @@
+# Deployment (DigitalOcean Droplet)
+
+The platform deploys as three containers on one Droplet — the Next.js app
+(standalone build), PostgreSQL, and Caddy (automatic TLS + reverse proxy) — via
+`docker-compose.yml`. This mirrors how Horizon Scanner already shipped to a
+Droplet, consolidated into one compose file.
+
+```
+Internet ──443──▶ Caddy ──▶ app:3000 ──▶ db:5432
+                  (TLS)      (Next.js)     (Postgres, private)
+```
+
+## Prerequisites
+
+- An Ubuntu Droplet with Docker Engine + the Compose plugin installed.
+- A DNS **A record** pointing your domain at the Droplet's IP (Caddy needs it to
+  issue a certificate).
+
+## First deploy
+
+```bash
+# on the Droplet
+sudo git clone https://github.com/mwrinehart/mwrinehart.github.io.git /opt/jericho-platform
+cd /opt/jericho-platform
+
+# create the (gitignored) env file
+cp .env.example .env
+nano .env   # set the values below
+
+docker compose up -d --build
+docker compose logs -f app   # watch "[migrate] platform + module schema ready"
+```
+
+### Required `.env` values
+
+| Var | How to set |
+| --- | --- |
+| `DOMAIN` | your domain, e.g. `app.jerichosecurity.com` |
+| `AUTH_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
+| `PLATFORM_MASTER_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` (encrypts per-org secrets — losing/changing it makes stored org secrets unreadable) |
+| `POSTGRES_PASSWORD` | a strong password |
+| `AUTH_SSO_PROVIDER` + OIDC vars | for production SSO (set `AUTH_DEV_LOGIN=0`) |
+| `PLATFORM_ADMIN_EMAILS` | comma-separated admin emails |
+| `ANTHROPIC_API_KEY` | for Compliance/Studio AI features |
+
+`DATABASE_URL` is injected by `docker-compose.yml` (points at the `db` service) —
+don't set it in `.env` for the Docker deployment.
+
+> **Production:** set `AUTH_DEV_LOGIN=0` and configure real SSO before exposing
+> the app. The dev login is for local development only.
+
+## Schema / migrations
+
+Tables are created automatically on app boot by `runMigrations()`
+(`instrumentation.ts`) — platform tables first, then each module's migrator. No
+manual migration step. (For schema changes during development, `npm run db:push`
+applies the Drizzle schema directly.)
+
+## Updating
+
+```bash
+cd /opt/jericho-platform && ./deploy/deploy.sh   # git pull + rebuild + restart
+```
+
+### Optional: auto-deploy on push (GitHub Actions)
+
+Add this as `.github/workflows/deploy.yml` **via the GitHub UI** (committing
+workflow files over git needs a token with the `workflow` scope) and set the
+`DROPLET_HOST`, `DROPLET_USER`, and `DROPLET_SSH_KEY` repo secrets:
+
+```yaml
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: cd /opt/jericho-platform && ./deploy/deploy.sh
+```
+
+## Backups & ops
+
+- **Database**: persisted in the `pgdata` Docker volume. Schedule
+  `docker compose exec -T db pg_dump -U postgres jericho | gzip > backup.sql.gz`.
+- **Secrets**: keep `PLATFORM_MASTER_KEY` backed up separately from the DB — it
+  decrypts every org's integration credentials.
+- **Health**: `GET /api/health`. **Logs**: `docker compose logs -f app`.

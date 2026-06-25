@@ -1,0 +1,1 @@
+# empty — keeps the public/ directory in git so the Docker build can COPY it
