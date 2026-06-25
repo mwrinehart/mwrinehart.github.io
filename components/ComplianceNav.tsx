@@ -7,6 +7,7 @@ const TABS = [
   { href: "/compliance", label: "Findings" },
   { href: "/compliance/feeds", label: "Feeds" },
   { href: "/compliance/policies", label: "Policies" },
+  { href: "/compliance/alerts", label: "Alerts" },
 ];
 
 export function ComplianceNav() {

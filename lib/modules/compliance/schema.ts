@@ -10,7 +10,7 @@
 // from Behavior's Policy Center (employee-facing security policies) — modules
 // don't share tables; anything truly common would move to the platform.
 
-import { bigint, boolean, pgTable, text } from "drizzle-orm/pg-core";
+import { bigint, boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
 export const complianceFeeds = pgTable("compliance_feeds", {
   id: text("id").primaryKey(),
@@ -57,6 +57,22 @@ export const complianceFindings = pgTable("compliance_findings", {
   analyzedAt: bigint("analyzed_at", { mode: "number" }),
 });
 
+// Instant alert routes — push critical/high findings to Slack/Teams/email.
+export const complianceAutoRoutes = pgTable("compliance_auto_routes", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  name: text("name").notNull(),
+  severityMin: text("severity_min").notNull().default("high"),
+  categories: text("categories"), // csv; null = all
+  channelProvider: text("channel_provider").notNull(), // slack | teams | email
+  channelTarget: text("channel_target").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  sentCount: integer("sent_count").notNull().default(0),
+  lastSentAt: bigint("last_sent_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 export type ComplianceFeedRow = typeof complianceFeeds.$inferSelect;
 export type CompliancePolicyRow = typeof compliancePolicies.$inferSelect;
 export type ComplianceFindingRow = typeof complianceFindings.$inferSelect;
+export type ComplianceAutoRouteRow = typeof complianceAutoRoutes.$inferSelect;

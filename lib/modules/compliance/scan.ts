@@ -6,8 +6,9 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { assertSafeFeedUrl, classifyItem, scanFeed, type KeywordRule, type Severity } from "@/lib/platform/feeds";
-import { complianceFeeds, complianceFindings, compliancePolicies } from "./schema";
+import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
+import { notify } from "@/lib/platform/notify";
+import { complianceAutoRoutes, complianceFeeds, complianceFindings, compliancePolicies } from "./schema";
 
 // Built-in compliance/regulatory classifier. Tenants don't have to configure
 // keywords; these give scanned items sensible severity + category out of the box.
@@ -94,6 +95,70 @@ export async function deletePolicy(orgId: string, id: string): Promise<void> {
   await db.delete(compliancePolicies).where(and(eq(compliancePolicies.orgId, orgId), eq(compliancePolicies.id, id)));
 }
 
+// ─── alert auto-routes ────────────────────────────────────────────────────────
+
+export function listAutoRoutes(orgId: string) {
+  return db.select().from(complianceAutoRoutes).where(eq(complianceAutoRoutes.orgId, orgId)).orderBy(desc(complianceAutoRoutes.createdAt));
+}
+
+export async function addAutoRoute(
+  orgId: string,
+  input: { name: string; severityMin: Severity; channelProvider: "slack" | "teams" | "email"; channelTarget: string; categories?: string },
+): Promise<void> {
+  await db.insert(complianceAutoRoutes).values({
+    id: randomUUID(),
+    orgId,
+    name: input.name.trim() || "Route",
+    severityMin: input.severityMin,
+    categories: input.categories ?? null,
+    channelProvider: input.channelProvider,
+    channelTarget: input.channelTarget.trim(),
+    enabled: true,
+    createdAt: Date.now(),
+  });
+}
+
+export async function deleteAutoRoute(orgId: string, id: string): Promise<void> {
+  await db.delete(complianceAutoRoutes).where(and(eq(complianceAutoRoutes.orgId, orgId), eq(complianceAutoRoutes.id, id)));
+}
+
+export async function setAutoRouteEnabled(orgId: string, id: string, enabled: boolean): Promise<void> {
+  await db.update(complianceAutoRoutes).set({ enabled }).where(and(eq(complianceAutoRoutes.orgId, orgId), eq(complianceAutoRoutes.id, id)));
+}
+
+interface AlertFinding {
+  title: string;
+  link: string;
+  summary: string;
+  severity: Severity;
+  category: string | null;
+}
+
+async function dispatchAutoRoutes(orgId: string, finding: AlertFinding): Promise<void> {
+  const routes = (await listAutoRoutes(orgId)).filter((r) => r.enabled);
+  for (const route of routes) {
+    if (!severityAtLeast(finding.severity, route.severityMin as Severity)) continue;
+    if (route.categories) {
+      const cats = route.categories.split(",").map((c) => c.trim().toLowerCase());
+      if (!finding.category || !cats.includes(finding.category.toLowerCase())) continue;
+    }
+    const res = await notify({
+      orgId,
+      channel: route.channelProvider as "slack" | "teams" | "email",
+      target: route.channelTarget,
+      subject: `[${finding.severity.toUpperCase()}] ${finding.title}`,
+      body: `${finding.summary}\n${finding.link}`,
+      module: "compliance",
+    });
+    if (res.status === "sent") {
+      await db
+        .update(complianceAutoRoutes)
+        .set({ sentCount: route.sentCount + 1, lastSentAt: Date.now() })
+        .where(eq(complianceAutoRoutes.id, route.id));
+    }
+  }
+}
+
 // ─── findings + scan ──────────────────────────────────────────────────────────
 
 export function listFindings(orgId: string, limit = 50) {
@@ -140,7 +205,16 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
           })
           .onConflictDoNothing()
           .returning({ id: complianceFindings.id });
-        if (inserted.length > 0) result.added++;
+        if (inserted.length > 0) {
+          result.added++;
+          await dispatchAutoRoutes(orgId, {
+            title: item.title,
+            link: item.link,
+            summary: item.summary,
+            severity: c.severity,
+            category: c.categories[0] ?? null,
+          });
+        }
       }
       await db.update(complianceFeeds).set({ lastScannedAt: Date.now(), lastError: null }).where(eq(complianceFeeds.id, feed.id));
     } catch (e) {

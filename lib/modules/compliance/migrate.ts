@@ -49,5 +49,20 @@ export async function migrateCompliance(client: PoolClient): Promise<void> {
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS ai_actions TEXT;
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS mapped_policies TEXT;
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS analyzed_at BIGINT;
+
+    CREATE TABLE IF NOT EXISTS compliance_auto_routes (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      severity_min TEXT NOT NULL DEFAULT 'high',
+      categories TEXT,
+      channel_provider TEXT NOT NULL,
+      channel_target TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sent_count INTEGER NOT NULL DEFAULT 0,
+      last_sent_at BIGINT,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_compliance_routes_org ON compliance_auto_routes(org_id);
   `);
 }

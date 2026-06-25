@@ -82,13 +82,16 @@ proper module on the shared spine.
   platform key). Manual per-finding "Analyze", bulk "Analyze new", and the
   `compliance-analyze` cron job (bounded per run).
 
+- ✅ **Alerting + auto-routes** — per-tenant rules push new findings (≥ chosen
+  severity, optional category filter) to Slack/Teams/email via the **unified
+  notifier**, fired in-band as the scan inserts findings.
+
 **Remaining in Phase 2:**
 
 - **Custom keyword rules + composite scoring + feedback learning** per tenant.
 - **Federal Register / breach-portal / OIG** ingestion connectors.
-- **Alerting** (Teams/Slack/email/SharePoint/Power Automate) via the **unified
-  notifier** + auto-routes — replaces `email-notifications.js`,
-  `sharepoint-sync.js`, `powerautomate-sync.js`.
+- **SharePoint / Power Automate** as additional alert channels (replacing
+  `sharepoint-sync.js` / `powerautomate-sync.js`).
 
 ## Phase 3 — Studio (Make)
 
