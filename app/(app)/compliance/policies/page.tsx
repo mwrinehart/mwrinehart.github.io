@@ -70,7 +70,7 @@ export default async function CompliancePoliciesPage() {
               Add policy
             </button>
           </form>
-          <p className="text-xs text-jericho-muted mt-3">AI cross-reference of findings to policies lands in the next Compliance increment.</p>
+          <p className="text-xs text-jericho-muted mt-3">Findings are AI-cross-referenced against these policies on the Findings tab (requires an Anthropic API key).</p>
         </Panel>
       </div>
     </>

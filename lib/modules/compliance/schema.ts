@@ -49,6 +49,12 @@ export const complianceFindings = pgTable("compliance_findings", {
   keywords: text("keywords"),
   publishedAt: bigint("published_at", { mode: "number" }),
   scannedAt: bigint("scanned_at", { mode: "number" }).notNull(),
+  // AI analysis (shared Anthropic client): summary, action items, and the org
+  // policies this finding implicates. Populated on demand / by the cron job.
+  aiSummary: text("ai_summary"),
+  aiActions: text("ai_actions"), // JSON string[]
+  mappedPolicies: text("mapped_policies"), // JSON [{reference,title,why}]
+  analyzedAt: bigint("analyzed_at", { mode: "number" }),
 });
 
 export type ComplianceFeedRow = typeof complianceFeeds.$inferSelect;

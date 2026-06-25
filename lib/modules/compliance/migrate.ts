@@ -45,5 +45,9 @@ export async function migrateCompliance(client: PoolClient): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_compliance_findings_org ON compliance_findings(org_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_findings_link ON compliance_findings(org_id, link);
+    ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS ai_summary TEXT;
+    ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS ai_actions TEXT;
+    ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS mapped_policies TEXT;
+    ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS analyzed_at BIGINT;
   `);
 }

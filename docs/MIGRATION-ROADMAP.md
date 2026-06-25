@@ -77,11 +77,13 @@ proper module on the shared spine.
 - ✅ Module wired live (registry, migrator, cron, schema re-export). The SSRF
   feed-URL guard is now shared in `lib/platform/feeds.ts` (Pulse + Compliance).
 
+- ✅ **AI summaries + policy cross-reference** — findings are summarized and mapped
+  to the tenant's policies via the **shared Anthropic client** (per-org key or
+  platform key). Manual per-finding "Analyze", bulk "Analyze new", and the
+  `compliance-analyze` cron job (bounded per run).
+
 **Remaining in Phase 2:**
 
-- **AI summaries + policy cross-reference** — summarize findings and map them to
-  the tenant's policies via the **shared Anthropic client** (the policies list and
-  AI client both already exist).
 - **Custom keyword rules + composite scoring + feedback learning** per tenant.
 - **Federal Register / breach-portal / OIG** ingestion connectors.
 - **Alerting** (Teams/Slack/email/SharePoint/Power Automate) via the **unified
