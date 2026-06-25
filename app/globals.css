@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* Jericho platform theme tokens. Modules and brand kits override these at the
+   org level later; these are the platform defaults. */
+@theme {
+  --color-jericho-bg: #0b1020;
+  --color-jericho-panel: #121a30;
+  --color-jericho-border: #233152;
+  --color-jericho-text: #e6ebf5;
+  --color-jericho-muted: #93a0bd;
+  --color-jericho-accent: #4f8cff;
+  --color-jericho-good: #3ecf8e;
+  --color-jericho-warn: #f5b54a;
+  --color-jericho-bad: #ff5d6c;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-jericho-bg);
+  color: var(--color-jericho-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
