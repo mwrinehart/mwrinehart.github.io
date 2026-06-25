@@ -124,5 +124,6 @@ export type InviteRow = typeof invites.$inferSelect;
 export type OrgSettingsRow = typeof orgSettings.$inferSelect;
 
 // ─── Module schemas ───────────────────────────────────────────────────────────
-// Each ported module appends its tables here. Behavior (CBM) is live.
+// Each ported module appends its tables here.
 export * from "@/lib/modules/behavior/schema";
+export * from "@/lib/modules/compliance/schema";

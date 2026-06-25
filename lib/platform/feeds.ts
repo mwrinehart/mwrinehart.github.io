@@ -72,3 +72,30 @@ export function classifyItem(item: FeedItem, rules: KeywordRule[]): Classificati
 export function severityAtLeast(value: Severity, min: Severity): boolean {
   return SEVERITY_RANK[value] >= SEVERITY_RANK[min];
 }
+
+// Lightweight SSRF guard for user-supplied feed URLs, shared by every module that
+// lets tenants add feeds (Behavior Pulse, Compliance). Rejects non-http(s) and
+// private/loopback/link-local hosts. (Full DNS-rebind protection at resolve time
+// is a follow-up.)
+export function assertSafeFeedUrl(raw: string): URL {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error("Invalid feed URL");
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("Feed URL must be http(s)");
+  const host = u.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "::1" ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    throw new Error("Feed URL host is not allowed");
+  }
+  return u;
+}

@@ -64,17 +64,29 @@ a connector still needs them.
 
 ## Phase 2 — Compliance (Horizon Scanner)
 
-Horizon is the largest single-file app (~5.3k-line `server.js`); rebuild it as a
-proper module:
+Horizon is the largest single-file app (~5.3k-line `server.js`); rebuilt as a
+proper module on the shared spine.
 
-- Feed config + 24 keyword rules on the **shared feed engine** (the engine
-  Behavior's Pulse already uses — dedupe the two).
-- AI summaries + policy-mapped action items via the **shared Anthropic client**.
-- Policy upload + cross-reference, composite scoring, feedback learning.
-- Federal Register / breach-portal / OIG integrations.
-- Alerting (Teams/Slack/email/SharePoint/Power Automate) via the **unified
-  notifier** — replaces `email-notifications.js`, `sharepoint-sync.js`,
-  `powerautomate-sync.js`.
+**Delivered (this increment):**
+
+- ✅ **Per-tenant feeds + policies** — each org configures its own feeds and
+  compliance policies (empty by default; `compliance_feeds`, `compliance_policies`).
+- ✅ **Scanner on the shared feed engine** — `compliance_findings` classified by a
+  built-in compliance/regulatory ruleset (HIPAA/NIST/PCI/CISA/Federal Register/…),
+  deduped by link. Manual "Scan now" + the `compliance-scan` cron job.
+- ✅ Module wired live (registry, migrator, cron, schema re-export). The SSRF
+  feed-URL guard is now shared in `lib/platform/feeds.ts` (Pulse + Compliance).
+
+**Remaining in Phase 2:**
+
+- **AI summaries + policy cross-reference** — summarize findings and map them to
+  the tenant's policies via the **shared Anthropic client** (the policies list and
+  AI client both already exist).
+- **Custom keyword rules + composite scoring + feedback learning** per tenant.
+- **Federal Register / breach-portal / OIG** ingestion connectors.
+- **Alerting** (Teams/Slack/email/SharePoint/Power Automate) via the **unified
+  notifier** + auto-routes — replaces `email-notifications.js`,
+  `sharepoint-sync.js`, `powerautomate-sync.js`.
 
 ## Phase 3 — Studio (Make)
 

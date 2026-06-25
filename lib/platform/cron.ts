@@ -11,6 +11,7 @@ import { db } from "./db";
 import { cronRuns } from "./db/schema";
 import { str } from "./env";
 import { behaviorCronJobs } from "@/lib/modules/behavior/jobs";
+import { complianceCronJobs } from "@/lib/modules/compliance/jobs";
 
 export interface CronJob {
   id: string;
@@ -18,7 +19,7 @@ export interface CronJob {
   run: () => Promise<unknown>;
 }
 
-const JOBS: CronJob[] = [...behaviorCronJobs];
+const JOBS: CronJob[] = [...behaviorCronJobs, ...complianceCronJobs];
 
 export function listJobs(): Array<{ id: string; description: string }> {
   return JOBS.map(({ id, description }) => ({ id, description }));

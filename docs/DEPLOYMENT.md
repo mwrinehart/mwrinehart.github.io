@@ -94,6 +94,8 @@ by an external scheduler hitting `/api/cron/<job>` with the `CRON_SECRET`. Set
 ```cron
 # every 15 minutes: scan all orgs' threat-pulse feeds + auto-route critical findings
 */15 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-scan
+# every 15 minutes: scan all orgs' compliance/regulatory feeds
+*/15 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/compliance-scan
 # hourly: send any pulse digests due this hour
 0 * * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://$DOMAIN/api/cron/pulse-digests
 # every minute: activate scheduled Litmos assignments that are now due

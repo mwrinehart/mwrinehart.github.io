@@ -35,11 +35,11 @@ export const MODULES: ModuleDef[] = [
   {
     id: "compliance",
     label: "Compliance",
-    blurb: "Regulatory & threat-feed scanning with AI summaries, policy mapping, and alerting.",
+    blurb: "Regulatory & threat-feed scanning with policy mapping and alerting.",
     icon: "📡",
     href: "/compliance",
     sourceApp: "Horizon Scanner",
-    status: "planned",
+    status: "live",
   },
   {
     id: "studio",

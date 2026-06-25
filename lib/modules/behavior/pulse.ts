@@ -10,7 +10,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
 import { pulseAutoRoutes, pulseFeeds, pulseFindings, pulseKeywords } from "./schema";
 
@@ -56,31 +56,6 @@ const DEFAULT_RULES: KeywordRule[] = [
 
 export function listFeeds(orgId: string) {
   return db.select().from(pulseFeeds).where(eq(pulseFeeds.orgId, orgId));
-}
-
-// Lightweight SSRF guard for user-supplied feed URLs. (Full DNS-rebind protection
-// — CBM's resolve-time check — is a follow-up.)
-function assertSafeFeedUrl(raw: string): URL {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    throw new Error("Invalid feed URL");
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("Feed URL must be http(s)");
-  const host = u.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "::1" ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  ) {
-    throw new Error("Feed URL host is not allowed");
-  }
-  return u;
 }
 
 export async function addFeed(orgId: string, input: { name: string; url: string; category?: string }): Promise<void> {
