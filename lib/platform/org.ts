@@ -8,7 +8,7 @@
 // substituted once that subsystem is ported.
 
 import { auth } from "./auth";
-import { getActiveOrgId, getMembership } from "./orgs";
+import { getActiveMembership, getActiveOrgId } from "./orgs";
 
 export type Role = "owner" | "admin" | "member" | "viewer";
 
@@ -45,14 +45,13 @@ export interface TenantContext {
 export async function requireTenant(minRole?: Role): Promise<TenantContext> {
   const userId = await getUserId();
   if (!userId) throw new Error("Not authenticated.");
-  const orgId = await requireOrgId();
-  const membership = await getMembership(orgId, userId);
-  if (!membership) throw new Error("Not a member of the active organization.");
+  const membership = await getActiveMembership(userId);
+  if (!membership) throw new Error("No active organization for this request.");
   const role = membership.role as Role;
   if (minRole && !roleAtLeast(role, minRole)) {
     throw new Error(`Requires ${minRole} role.`);
   }
-  return { userId, orgId, role };
+  return { userId, orgId: membership.orgId, role };
 }
 
 const ROLE_RANK: Record<Role, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };

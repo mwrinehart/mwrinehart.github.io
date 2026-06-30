@@ -77,11 +77,18 @@ export async function recomputeRiskForOrg(orgId: string): Promise<void> {
     weightByPerson.set(b.personId, (weightByPerson.get(b.personId) ?? 0) + (SEVERITY_WEIGHT[b.severity] ?? 10));
   }
 
-  // Credit "reported" campaign events.
+  // Credit "reported" campaign events within the same 90-day window as behavior
+  // debits, so credits and debits use a consistent time base.
   const reports = await db
     .select({ email: importedCampaignEvents.userEmail })
     .from(importedCampaignEvents)
-    .where(and(eq(importedCampaignEvents.orgId, orgId), ilike(importedCampaignEvents.eventType, "%report%")));
+    .where(
+      and(
+        eq(importedCampaignEvents.orgId, orgId),
+        ilike(importedCampaignEvents.eventType, "%report%"),
+        gte(importedCampaignEvents.eventAt, cutoff),
+      ),
+    );
   const reportByPerson = new Map<string, number>();
   for (const r of reports) {
     const id = r.email ? emailToId.get(r.email) : undefined;
@@ -133,10 +140,22 @@ export async function getOrgRiskTrend(orgId: string): Promise<{ direction: "incr
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, { sum, n }]) => ({ date, avg: Math.round(sum / n) }));
 
+  // Direction from a least-squares slope over ALL points (avg per bucket), not
+  // just the two endpoints, so a spike-then-recover reads correctly. (Buckets are
+  // UTC days; per-org timezone is a follow-up once orgs carry a tz.)
   let direction: "increasing" | "decreasing" | "stable" = "stable";
   if (points.length >= 2) {
-    const delta = points[points.length - 1].avg - points[0].avg;
-    direction = delta > 2 ? "increasing" : delta < -2 ? "decreasing" : "stable";
+    const n = points.length;
+    const meanX = (n - 1) / 2;
+    const meanY = points.reduce((s, p) => s + p.avg, 0) / n;
+    let num = 0;
+    let den = 0;
+    for (let i = 0; i < n; i++) {
+      num += (i - meanX) * (points[i].avg - meanY);
+      den += (i - meanX) ** 2;
+    }
+    const slope = den ? num / den : 0; // avg-score change per day-bucket
+    direction = slope > 0.5 ? "increasing" : slope < -0.5 ? "decreasing" : "stable";
   }
   return { direction, points };
 }

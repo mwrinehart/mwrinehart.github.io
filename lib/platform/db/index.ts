@@ -48,12 +48,13 @@ export async function runMigrations(): Promise<void> {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
+        email TEXT,
         name TEXT,
         password_hash TEXT,
         active_org_id TEXT,
         created_at BIGINT NOT NULL
       );
+      ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
       CREATE TABLE IF NOT EXISTS orgs (
         id TEXT PRIMARY KEY,
         slug TEXT NOT NULL,

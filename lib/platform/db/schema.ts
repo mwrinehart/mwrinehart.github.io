@@ -18,7 +18,8 @@ import { bigint, integer, pgTable, text } from "drizzle-orm/pg-core";
 // the Behavior module (a key reconciliation: CBM conflated the two).
 export const users = pgTable("users", {
   id: text("id").primaryKey(), // Auth.js user id
-  email: text("email").notNull(),
+  // Nullable: a provider may omit the email claim on first sign-in.
+  email: text("email"),
   name: text("name"),
   passwordHash: text("password_hash"),
   activeOrgId: text("active_org_id"),

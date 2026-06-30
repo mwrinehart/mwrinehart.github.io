@@ -35,6 +35,37 @@ async function litmosFetch(creds: Creds, path: string, init?: RequestInit): Prom
   });
 }
 
+// Envelope-safe: Litmos usually returns a bare array, but tolerate { Items: [...] }
+// / { results: [...] } so a wrapped response doesn't throw on .find/.length.
+function extractArray(json: unknown): Record<string, unknown>[] {
+  if (Array.isArray(json)) return json as Record<string, unknown>[];
+  if (json && typeof json === "object") {
+    for (const key of ["Items", "items", "results", "data", "Users"]) {
+      const v = (json as Record<string, unknown>)[key];
+      if (Array.isArray(v)) return v as Record<string, unknown>[];
+    }
+  }
+  return [];
+}
+
+// Resolve a Litmos user id by email, paging through /users (cap pages) so users
+// beyond the first 200 are still found.
+async function findLitmosUserId(creds: Creds, email: string): Promise<string | null> {
+  const target = email.toLowerCase();
+  if (!target) return null;
+  const PAGE = 200;
+  const MAX_PAGES = 50;
+  for (let start = 0; start < PAGE * MAX_PAGES; start += PAGE) {
+    const res = await litmosFetch(creds, `/users?limit=${PAGE}&start=${start}`);
+    if (!res.ok) throw new Error(`litmos users ${res.status}`);
+    const rows = extractArray(await res.json());
+    const match = rows.find((u) => String(u.Email ?? "").toLowerCase() === target);
+    if (match?.Id) return String(match.Id);
+    if (rows.length < PAGE) break;
+  }
+  return null;
+}
+
 // ─── reads ────────────────────────────────────────────────────────────────────
 
 export function listAssignments(orgId: string, limit = 200) {
@@ -97,18 +128,12 @@ export async function activateAssignment(row: LitmosAssignmentRow): Promise<void
       await fail(row.id, "Litmos API key not configured");
       return;
     }
-    const usersRes = await litmosFetch(creds, "/users?limit=200&start=0");
-    if (!usersRes.ok) {
-      await fail(row.id, `litmos users ${usersRes.status}`);
-      return;
-    }
-    const users = (await usersRes.json()) as Array<{ Id?: string; Email?: string }>;
-    const match = users.find((u) => u.Email?.toLowerCase() === row.userEmail);
-    if (!match?.Id) {
+    const litmosUserId = await findLitmosUserId(creds, row.userEmail ?? "");
+    if (!litmosUserId) {
       await fail(row.id, "user not found in Litmos");
       return;
     }
-    const enroll = await litmosFetch(creds, `/users/${match.Id}/courses`, {
+    const enroll = await litmosFetch(creds, `/users/${litmosUserId}/courses`, {
       method: "POST",
       body: JSON.stringify([{ Id: row.litmosCourseId }]),
     });
@@ -119,7 +144,7 @@ export async function activateAssignment(row: LitmosAssignmentRow): Promise<void
     }
     await db
       .update(litmosAssignments)
-      .set({ status: "active", activatedAt: Date.now(), litmosUserId: match.Id, litmosResponse: body })
+      .set({ status: "active", activatedAt: Date.now(), litmosUserId, litmosResponse: body })
       .where(eq(litmosAssignments.id, row.id));
   } catch (e) {
     await fail(row.id, e instanceof Error ? e.message : String(e));

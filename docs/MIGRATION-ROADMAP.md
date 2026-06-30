@@ -140,25 +140,26 @@ These benefit every module and aren't owned by one:
 - **Commercial product, no gov/DoD.** Mirage's DoD tenant class and
   classification features are dropped from the Campaigns module.
 
-## Code-review follow-ups (deferred from the review fix batch)
+## Code-review follow-ups — resolved
 
 The high-value batch (SSRF guard hardening, notify timeouts + cached SMTP
 transport, per-scan alert cap + hoisted route query + SQL-increment counters, AI
-JSON-parse guard, NaN-date guard) is applied. Still open:
+JSON-parse guard, NaN-date guard) plus the deferred set are all applied:
 
-- **External-sync pagination** — Litmos sync + `activateAssignment` user lookup
-  fetch only `limit=200&start=0`; paginate so orgs with >200 users aren't
-  silently truncated.
-- **Litmos response envelope** — `activateAssignment` assumes `/users` returns a
-  bare array; use the envelope-aware extractor.
-- **Report-credit time window** — risk scoring credits "reported" events with no
-  90-day window (behaviors use one); align the time bases.
-- **Risk-trend direction** — `getOrgRiskTrend` compares only first/last day-bucket
-  and buckets by UTC; use a real slope and per-org timezone.
-- **Empty email on first insert** — `upsertUser` can persist `email=""` when a
-  provider omits the claim.
-- **Auth hot-path queries** — `getActiveOrgId` + `requireTenant` run the
-  membership lookup twice per request.
+- ✅ **External-sync pagination** — Litmos sync and `activateAssignment`'s user
+  lookup now page through `/users` (cap 50 pages) instead of fetching only 200.
+- ✅ **Litmos response envelope** — user lookup uses an envelope-aware extractor.
+- ✅ **Report-credit time window** — "reported" credits now use the same 90-day
+  window as behavior debits.
+- ✅ **Risk-trend direction** — `getOrgRiskTrend` uses a least-squares slope over
+  all points (UTC bucketing remains until orgs carry a timezone).
+- ✅ **Nullable user email** — `users.email` is nullable; `upsertUser` stores null
+  (not "") when a provider omits the claim.
+- ✅ **Auth hot-path** — `getActiveMembership` resolves org + role in one place, so
+  `requireTenant` no longer repeats the membership query.
+
+Residual (documented, low priority): full DNS-rebind protection (pin resolved IP
+at connect time); per-org timezone for trend bucketing.
 
 ## Open decisions (need product input)
 

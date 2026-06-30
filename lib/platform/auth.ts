@@ -119,7 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.uid = uid;
         if (email) token.email = email;
         if (name) token.name = name;
-        if (user) await upsertUser({ id: uid, email: email ?? "", name });
+        if (user) await upsertUser({ id: uid, email: email ?? null, name });
       }
       return token;
     },

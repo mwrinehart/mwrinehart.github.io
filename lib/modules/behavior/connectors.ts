@@ -275,13 +275,27 @@ async function syncLitmos(orgId: string): Promise<SyncSummary> {
   if (!apiKey) throw new Error("Litmos API key not configured (set it on the Sources page).");
   const source = (await getOrgSecret(orgId, SECRET.litmosSource)) || "jericho-platform";
   const headers = { apikey: apiKey, accept: "application/json" };
-  const q = `?source=${encodeURIComponent(source)}&limit=200&start=0`;
   const counts: Record<string, number> = { users: 0, teams: 0, courses: 0, learningPaths: 0 };
   const errors: string[] = [];
 
+  // Litmos pages at 200 rows; walk start until a short page (cap pages to bound a
+  // runaway). Without this only the first 200 rows of large tenants were imported.
+  const PAGE = 200;
+  const MAX_PAGES = 50;
+  const fetchAllPages = async (path: string): Promise<Record<string, unknown>[]> => {
+    const all: Record<string, unknown>[] = [];
+    for (let start = 0; start < PAGE * MAX_PAGES; start += PAGE) {
+      const q = `?source=${encodeURIComponent(source)}&limit=${PAGE}&start=${start}`;
+      const rows = await fetchRows(baseUrl + path + q, headers);
+      all.push(...rows);
+      if (rows.length < PAGE) break;
+    }
+    return all;
+  };
+
   const step = async (label: string, path: string, fn: (r: Record<string, unknown>) => Promise<void>) => {
     try {
-      const rows = await fetchRows(baseUrl + path + q, headers);
+      const rows = await fetchAllPages(path);
       for (const r of rows) await fn(r);
       counts[label] = rows.length;
     } catch (e) {

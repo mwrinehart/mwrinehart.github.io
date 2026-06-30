@@ -23,7 +23,7 @@ function slugify(name: string): string {
 
 // Insert the Auth.js identity into our users table on sign-in, keeping email/
 // name fresh. Idempotent.
-export async function upsertUser(input: { id: string; email: string; name?: string | null }): Promise<void> {
+export async function upsertUser(input: { id: string; email: string | null; name?: string | null }): Promise<void> {
   const existing = await db.select().from(users).where(eq(users.id, input.id));
   if (existing[0]) {
     await db
@@ -34,7 +34,9 @@ export async function upsertUser(input: { id: string; email: string; name?: stri
   }
   await db.insert(users).values({
     id: input.id,
-    email: input.email,
+    // Email is nullable: a provider may omit the claim on first sign-in. Storing
+    // null (not "") keeps isPlatformAdmin/notification lookups honest.
+    email: input.email || null,
     name: input.name ?? null,
     activeOrgId: null,
     createdAt: now(),
@@ -58,21 +60,27 @@ export async function getMembership(orgId: string, userId: string) {
   return rows[0] ?? null;
 }
 
-// The user's active org. Falls back to their first membership and persists it so
-// subsequent calls are stable. Returns null when the user has no org yet
-// (→ onboarding).
-export async function getActiveOrgId(userId: string): Promise<string | null> {
+// The user's active org AND role, resolved in one place. Validates the stored
+// active org still has a membership; otherwise falls back to the first membership
+// and persists it. Returns null when the user has no org yet (→ onboarding).
+// requireTenant() consumes this so the membership row is fetched once per request
+// rather than once here and again in requireTenant.
+export async function getActiveMembership(userId: string): Promise<{ orgId: string; role: string } | null> {
   const rows = await db.select({ activeOrgId: users.activeOrgId }).from(users).where(eq(users.id, userId));
   const active = rows[0]?.activeOrgId ?? null;
   if (active) {
-    // Confirm the membership still exists; otherwise fall through.
-    if (await getMembership(active, userId)) return active;
+    const m = await getMembership(active, userId);
+    if (m) return { orgId: active, role: m.role };
   }
   const memberships = await listOrgsForUser(userId);
   if (memberships.length === 0) return null;
-  const first = memberships[0].id;
-  await setActiveOrg(userId, first);
-  return first;
+  const first = memberships[0];
+  await setActiveOrg(userId, first.id);
+  return { orgId: first.id, role: first.role };
+}
+
+export async function getActiveOrgId(userId: string): Promise<string | null> {
+  return (await getActiveMembership(userId))?.orgId ?? null;
 }
 
 export async function setActiveOrg(userId: string, orgId: string): Promise<void> {
