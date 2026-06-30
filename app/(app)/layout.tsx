@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { auth, signOut } from "@/lib/platform/auth";
 import { getActiveOrgId, listOrgsForUser } from "@/lib/platform/orgs";
+import { isPlatformAdmin } from "@/lib/platform/admin";
 
 // Server layout for every authenticated page. Resolves the session and active
 // org once, then hands display data to the (client) AppShell. Anyone without an
@@ -27,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userEmail={session.user?.email ?? ""}
       orgName={current?.name ?? "—"}
       role={current?.role ?? "member"}
+      isPlatformAdmin={isPlatformAdmin(session.user?.email)}
       signOutAction={doSignOut}
     >
       {children}

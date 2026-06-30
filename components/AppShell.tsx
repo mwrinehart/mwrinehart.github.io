@@ -20,16 +20,21 @@ export function AppShell({
   userEmail,
   orgName,
   role,
+  isPlatformAdmin = false,
   signOutAction,
 }: {
   children: ReactNode;
   userEmail: string;
   orgName: string;
   role: string;
+  isPlatformAdmin?: boolean;
   signOutAction: () => Promise<void>;
 }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const platformLinks = isPlatformAdmin
+    ? [...PLATFORM_LINKS, { href: "/admin", label: "Platform admin", icon: "🛡️" }]
+    : PLATFORM_LINKS;
 
   return (
     <div className="flex min-h-screen">
@@ -41,7 +46,7 @@ export function AppShell({
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           <div className="space-y-1">
-            {PLATFORM_LINKS.map((l) => (
+            {platformLinks.map((l) => (
               <NavItem key={l.href} href={l.href} active={isActive(l.href)} icon={l.icon} label={l.label} />
             ))}
           </div>
