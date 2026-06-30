@@ -13,6 +13,16 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// Only allow image URLs we'd actually render: http(s) and data:image. This blocks
+// javascript:/vbscript:/data:text-html and other scheme-based injection that an
+// escaped-but-unvalidated src= would otherwise admit. Returns null if disallowed.
+function safeImageUrl(url: string): string | null {
+  const u = url.trim();
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^data:image\/[a-z0-9.+-]+;/i.test(u)) return u;
+  return null;
+}
+
 function renderBlock(b: Block): string {
   switch (b.type) {
     case "heading":
@@ -25,12 +35,17 @@ function renderBlock(b: Block): string {
       return `<div class="quiz"><p class="q">${esc(b.question)}</p><ol>${b.options
         .map((o, i) => `<li class="${i === b.answer ? "correct" : ""}">${esc(o)}${i === b.answer ? " ✓" : ""}</li>`)
         .join("")}</ol></div>`;
-    case "image":
+    case "image": {
+      const src = b.url ? safeImageUrl(b.url) : null;
       return `<figure>${
-        b.url ? `<img src="${esc(b.url)}" alt="${esc(b.prompt)}">` : `<div class="img-ph">🖼️ ${esc(b.prompt)}</div>`
+        src ? `<img src="${esc(src)}" alt="${esc(b.prompt)}">` : `<div class="img-ph">🖼️ ${esc(b.prompt)}</div>`
       }<figcaption>${esc(b.prompt)}</figcaption></figure>`;
+    }
     case "divider":
       return `<hr>`;
+    default:
+      // Unknown/unsupported block type — render nothing rather than throw.
+      return "";
   }
 }
 

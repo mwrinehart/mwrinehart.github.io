@@ -112,8 +112,12 @@ export async function analyzeAllOrgs(limit = 25): Promise<{ analyzed: number }> 
   let analyzed = 0;
   for (const orgId of orgIds) {
     if (analyzed >= limit) break;
-    const r = await analyzeNewFindings(orgId, limit - analyzed);
-    analyzed += r.analyzed;
+    try {
+      const r = await analyzeNewFindings(orgId, limit - analyzed);
+      analyzed += r.analyzed;
+    } catch {
+      // Isolate per-org failures so one org doesn't abort the rest of the run.
+    }
   }
   return { analyzed };
 }

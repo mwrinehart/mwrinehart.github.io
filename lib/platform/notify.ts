@@ -104,13 +104,20 @@ async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: Not
   if (!url) return { status: "skipped", error: "SMTP not configured" };
   const from = secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
   const transport = transportFor(url);
-  await transport.sendMail({
-    from,
-    to,
-    subject: input.subject || "Jericho notification",
-    text: input.body,
-    html: input.html,
+  // A URL-string transport sets no socket timeout; race the send so a hung mail
+  // server can't stall the digest/cron tick indefinitely.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("SMTP send timed out")), WEBHOOK_TIMEOUT_MS);
   });
+  try {
+    await Promise.race([
+      transport.sendMail({ from, to, subject: input.subject || "Jericho notification", text: input.body, html: input.html }),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
   return { status: "sent" };
 }
 

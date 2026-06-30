@@ -38,6 +38,9 @@ export interface Classification {
 const parser = new Parser({ timeout: 15000 });
 
 export async function scanFeed(url: string, feedName: string): Promise<FeedItem[]> {
+  // Re-validate at fetch time, not just at add time: a stored feed's host may now
+  // resolve to a private/metadata address (DNS change or rebinding).
+  await assertSafeFeedUrl(url);
   const feed = await parser.parseURL(url);
   return (feed.items ?? []).map((it) => ({
     title: it.title?.trim() || "(untitled)",

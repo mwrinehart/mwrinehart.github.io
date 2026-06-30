@@ -75,7 +75,9 @@ export async function generateJobContent(orgId: string, userId: string, jobId: s
 
   let personaCtx = "";
   if (job.personaId) {
-    const p = (await db.select().from(campaignPersonas).where(eq(campaignPersonas.id, job.personaId)))[0];
+    // Org-scoped: a job's personaId is client-supplied, so never read a persona
+    // outside this tenant.
+    const p = (await db.select().from(campaignPersonas).where(and(eq(campaignPersonas.orgId, orgId), eq(campaignPersonas.id, job.personaId))))[0];
     if (p) personaCtx = `\nSender persona: ${p.name}${p.role ? ` (${p.role})` : ""}${p.backstory ? ` — ${p.backstory}` : ""}`;
   }
 
@@ -92,7 +94,7 @@ export async function generateJobContent(orgId: string, userId: string, jobId: s
   await db
     .update(campaignContentJobs)
     .set({ generatedContent: content, status: job.status === "draft" ? "generated" : job.status, updatedAt: Date.now() })
-    .where(eq(campaignContentJobs.id, jobId));
+    .where(and(eq(campaignContentJobs.orgId, orgId), eq(campaignContentJobs.id, jobId)));
   await logAudit(orgId, job.campaignId, userId, "content.generated", job.channel);
 }
 
@@ -108,16 +110,20 @@ export async function submitJob(orgId: string, userId: string, jobId: string): P
   await db
     .update(campaignContentJobs)
     .set({ status: gate.status, blockReason: gate.reason ?? null, updatedAt: Date.now() })
-    .where(eq(campaignContentJobs.id, jobId));
+    .where(and(eq(campaignContentJobs.orgId, orgId), eq(campaignContentJobs.id, jobId)));
   await logAudit(orgId, job.campaignId, userId, `content.submitted.${gate.status}`, gate.reason);
 }
 
 export async function decideJob(orgId: string, userId: string, jobId: string, decision: "approved" | "rejected", note?: string): Promise<void> {
   const job = await getJob(orgId, jobId);
-  if (!job || job.status !== "pending_review") return;
-  await db
+  if (!job) return;
+  // Atomic guard: only transition a still-pending job, so concurrent decisions
+  // can't double-decide / double-audit.
+  const updated = await db
     .update(campaignContentJobs)
     .set({ status: decision, decidedByUserId: userId, decidedAt: Date.now(), updatedAt: Date.now() })
-    .where(eq(campaignContentJobs.id, jobId));
+    .where(and(eq(campaignContentJobs.orgId, orgId), eq(campaignContentJobs.id, jobId), eq(campaignContentJobs.status, "pending_review")))
+    .returning({ id: campaignContentJobs.id });
+  if (!updated.length) return;
   await logAudit(orgId, job.campaignId, userId, `content.${decision}`, note);
 }

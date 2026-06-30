@@ -42,7 +42,24 @@ export async function createCampaign(orgId: string, userId: string, input: { nam
 }
 
 // Policy gate: activating a campaign requires an approved launch approval.
+// Allowed status transitions — completed is terminal; no jumps to arbitrary states.
+const STATUS_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
+  draft: ["active"],
+  active: ["paused", "completed"],
+  paused: ["active", "completed"],
+  completed: [],
+};
+
 export async function setStatus(orgId: string, userId: string, id: string, status: CampaignStatus): Promise<void> {
+  // Validate the requested status and the transition (the status arrives from a
+  // client form, so don't trust the `as CampaignStatus` cast).
+  if (!(status in STATUS_TRANSITIONS)) throw new Error(`Invalid status: ${status}`);
+  const current = await getCampaign(orgId, id);
+  if (!current) throw new Error("Campaign not found");
+  if (current.status === status) return; // no-op
+  if (!STATUS_TRANSITIONS[current.status as CampaignStatus]?.includes(status)) {
+    throw new Error(`Illegal transition: ${current.status} → ${status}`);
+  }
   if (status === "active") {
     const approved = await db
       .select({ id: campaignApprovals.id })

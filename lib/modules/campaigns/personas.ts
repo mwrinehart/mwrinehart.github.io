@@ -38,9 +38,12 @@ const PERSONA_STATES = new Set(["draft", "warming", "ready"]);
 
 export async function setPersonaStatus(orgId: string, userId: string, campaignId: string, personaId: string, status: string): Promise<void> {
   if (!PERSONA_STATES.has(status)) return;
-  await db
+  // Scope by campaignId too, so a persona from another campaign in the same org
+  // can't be flipped (and the audit entry is correctly attributed).
+  const updated = await db
     .update(campaignPersonas)
     .set({ status })
-    .where(and(eq(campaignPersonas.orgId, orgId), eq(campaignPersonas.id, personaId)));
-  await logAudit(orgId, campaignId, userId, `persona.status.${status}`, personaId);
+    .where(and(eq(campaignPersonas.orgId, orgId), eq(campaignPersonas.campaignId, campaignId), eq(campaignPersonas.id, personaId)))
+    .returning({ id: campaignPersonas.id });
+  if (updated.length) await logAudit(orgId, campaignId, userId, `persona.status.${status}`, personaId);
 }

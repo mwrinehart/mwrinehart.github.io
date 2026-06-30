@@ -43,12 +43,14 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
     let fields: Record<string, unknown> = {};
     if (btype === "heading" || btype === "text") fields = { text: String(formData.get("text") || "") };
     else if (btype === "bullets") fields = { items: String(formData.get("items") || "").split("\n").map((s) => s.trim()).filter(Boolean) };
-    else if (btype === "quiz")
-      fields = {
-        question: String(formData.get("question") || ""),
-        options: String(formData.get("options") || "").split("\n").map((s) => s.trim()).filter(Boolean),
-        answer: Number(formData.get("answer") || 0),
-      };
+    else if (btype === "quiz") {
+      const options = String(formData.get("options") || "").split("\n").map((s) => s.trim()).filter(Boolean);
+      // Clamp the answer to a valid option index; a blank/garbage/out-of-range
+      // value would otherwise persist as NaN or point past the options list.
+      const rawAnswer = Math.trunc(Number(formData.get("answer")));
+      const answer = options.length && Number.isFinite(rawAnswer) ? Math.max(0, Math.min(options.length - 1, rawAnswer)) : 0;
+      fields = { question: String(formData.get("question") || ""), options, answer };
+    }
     else if (btype === "image") fields = { prompt: String(formData.get("prompt") || ""), url: String(formData.get("url") || "") || undefined };
     if (Object.keys(fields).length) await updateBlock(orgId, id, bid, fields);
     revalidatePath(`/studio/${id}`);

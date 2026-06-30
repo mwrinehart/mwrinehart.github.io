@@ -78,19 +78,16 @@ export async function recomputeRiskForOrg(orgId: string): Promise<void> {
   }
 
   // Credit "reported" campaign events within the same 90-day window as behavior
-  // debits, so credits and debits use a consistent time base.
+  // debits. Window on (eventAt ?? importedAt) — the exact fallback the debit side
+  // uses (synthesizeBehaviors) — so events with a null eventAt aren't dropped from
+  // credit while still counting toward debit (which would bias scores upward).
   const reports = await db
-    .select({ email: importedCampaignEvents.userEmail })
+    .select({ email: importedCampaignEvents.userEmail, eventAt: importedCampaignEvents.eventAt, importedAt: importedCampaignEvents.importedAt })
     .from(importedCampaignEvents)
-    .where(
-      and(
-        eq(importedCampaignEvents.orgId, orgId),
-        ilike(importedCampaignEvents.eventType, "%report%"),
-        gte(importedCampaignEvents.eventAt, cutoff),
-      ),
-    );
+    .where(and(eq(importedCampaignEvents.orgId, orgId), ilike(importedCampaignEvents.eventType, "%report%")));
   const reportByPerson = new Map<string, number>();
   for (const r of reports) {
+    if ((r.eventAt ?? r.importedAt) < cutoff) continue;
     const id = r.email ? emailToId.get(r.email) : undefined;
     if (id) reportByPerson.set(id, (reportByPerson.get(id) ?? 0) + 1);
   }

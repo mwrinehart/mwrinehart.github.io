@@ -334,8 +334,12 @@ export async function scanAllComplianceOrgs(): Promise<{ orgs: number; added: nu
   const orgIds = [...new Set([...feeds.map((f) => f.orgId), ...conns.map((c) => c.orgId)])];
   let added = 0;
   for (const orgId of orgIds) {
-    const r = await scanOrgComplianceFeeds(orgId);
-    added += r.added;
+    try {
+      const r = await scanOrgComplianceFeeds(orgId);
+      added += r.added;
+    } catch {
+      // Isolate per-org failures so one org doesn't abort the rest of the tick.
+    }
   }
   return { orgs: orgIds.length, added };
 }

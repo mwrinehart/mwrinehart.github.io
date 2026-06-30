@@ -11,7 +11,10 @@ import { notify } from "@/lib/platform/notify";
 import { campaignApprovals, campaigns } from "./schema";
 import { logAudit } from "./audit";
 
-export type ApprovalType = "launch" | "expansion" | "content";
+// Content sign-off happens on the content job itself (decideJob), so the approval
+// workflow covers launch + scope expansion only — no decorative, unlinked
+// "content" approval rows.
+export type ApprovalType = "launch" | "expansion";
 export type Decision = "approved" | "rejected";
 
 export function listPendingApprovals(orgId: string) {
@@ -71,11 +74,15 @@ export async function decideApproval(
     .from(campaignApprovals)
     .where(and(eq(campaignApprovals.orgId, orgId), eq(campaignApprovals.id, approvalId)));
   const approval = rows[0];
-  if (!approval || approval.status !== "pending") return;
-  await db
+  if (!approval) return;
+  // Atomic guard: only a still-pending approval transitions, so concurrent
+  // decisions can't double-decide / double-audit or clobber each other.
+  const updated = await db
     .update(campaignApprovals)
     .set({ status: decision, decidedByUserId: userId, decisionNote: note ?? null, decidedAt: Date.now() })
-    .where(eq(campaignApprovals.id, approvalId));
+    .where(and(eq(campaignApprovals.orgId, orgId), eq(campaignApprovals.id, approvalId), eq(campaignApprovals.status, "pending")))
+    .returning({ id: campaignApprovals.id });
+  if (!updated.length) return;
   await logAudit(orgId, approval.campaignId, userId, `approval.${decision}.${approval.type}`, approval.title);
 }
 

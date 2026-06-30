@@ -5,13 +5,16 @@ import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { projects, type StudioProjectRow } from "./schema";
-import { emptyDoc, newBlock, type Block, type BlockType, type CourseDoc } from "./types";
+import { coerceBlock, emptyDoc, newBlock, type BlockType, type CourseDoc } from "./types";
 
 export function parseDoc(data: string | null): CourseDoc {
   if (!data) return emptyDoc();
   try {
-    const v = JSON.parse(data) as CourseDoc;
-    return Array.isArray(v?.blocks) ? { blocks: v.blocks } : emptyDoc();
+    const v = JSON.parse(data) as unknown;
+    const blocks = (v as { blocks?: unknown })?.blocks;
+    if (!Array.isArray(blocks)) return emptyDoc();
+    // Never trust persisted JSON: coerce each block, dropping anything malformed.
+    return { blocks: blocks.map(coerceBlock).filter((b) => b !== null) };
   } catch {
     return emptyDoc();
   }
@@ -56,12 +59,25 @@ export async function saveDoc(orgId: string, id: string, doc: CourseDoc): Promis
   await db.update(projects).set({ data: JSON.stringify(doc), updatedAt: Date.now() }).where(and(eq(projects.orgId, orgId), eq(projects.id, id)));
 }
 
+// Read-modify-write a project's doc under optimistic concurrency: the write only
+// lands if `updatedAt` still matches what we read, so two concurrent block edits
+// can't silently clobber each other (last-write-wins on a stale copy). On a
+// conflict we re-read and re-apply the mutation, up to a few attempts.
 async function mutateDoc(orgId: string, id: string, fn: (doc: CourseDoc) => void): Promise<void> {
-  const project = await getProject(orgId, id);
-  if (!project) return;
-  const doc = parseDoc(project.data);
-  fn(doc);
-  await saveDoc(orgId, id, doc);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const project = await getProject(orgId, id);
+    if (!project) return;
+    const doc = parseDoc(project.data);
+    fn(doc);
+    const written = await db
+      .update(projects)
+      .set({ data: JSON.stringify(doc), updatedAt: Date.now() })
+      .where(and(eq(projects.orgId, orgId), eq(projects.id, id), eq(projects.updatedAt, project.updatedAt)))
+      .returning({ id: projects.id });
+    if (written.length) return; // our compare-and-set won
+    // Lost the race: someone wrote between our read and update — retry from a fresh read.
+  }
+  throw new Error("Concurrent edit conflict; please retry");
 }
 
 export function addBlock(orgId: string, id: string, type: BlockType): Promise<void> {
@@ -86,11 +102,14 @@ export function moveBlock(orgId: string, id: string, blockId: string, dir: "up" 
   });
 }
 
-// Merge form-supplied fields into a block, keeping its type.
+// Merge form-supplied fields into a block, keeping its type. The merged result is
+// coerced (clamping quiz answers, dropping junk fields, etc.); if coercion fails
+// we leave the block untouched rather than persist something malformed.
 export function updateBlock(orgId: string, id: string, blockId: string, fields: Record<string, unknown>): Promise<void> {
   return mutateDoc(orgId, id, (doc) => {
     const i = doc.blocks.findIndex((b) => b.id === blockId);
     if (i < 0) return;
-    doc.blocks[i] = { ...doc.blocks[i], ...fields } as Block;
+    const merged = coerceBlock({ ...doc.blocks[i], ...fields, type: doc.blocks[i].type });
+    if (merged) doc.blocks[i] = merged;
   });
 }

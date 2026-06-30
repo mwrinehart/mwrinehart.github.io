@@ -45,7 +45,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   }
   async function changeAutonomy(formData: FormData) {
     "use server";
-    const { orgId, userId } = await requireTenant("member");
+    // Autonomy controls whether content auto-approves, so only admins/owners may
+    // change it — otherwise a member could set "auto" and self-approve content.
+    const { orgId, userId } = await requireTenant("admin");
     await setAutonomyMode(orgId, userId, id, String(formData.get("mode") || "manual") as AutonomyMode);
     revalidatePath(`/campaigns/${id}`);
   }
@@ -236,7 +238,6 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
               <select name="type" className="rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent">
                 <option value="launch">launch</option>
                 <option value="expansion">expansion</option>
-                <option value="content">content</option>
               </select>
               <input name="riskScore" type="number" min={0} max={100} placeholder="Risk" className="w-24 rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
             </div>

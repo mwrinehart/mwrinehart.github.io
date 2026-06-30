@@ -197,6 +197,32 @@ JSON-parse guard, NaN-date guard) plus the deferred set are all applied:
 Residual (documented, low priority): full DNS-rebind protection (pin resolved IP
 at connect time); per-org timezone for trend bucketing.
 
+### Second review pass (Campaigns + Studio + shared) — resolved
+
+A 15-finding review after the Campaigns/Studio builds; all applied:
+
+- ✅ **Tenant scoping** — content-job persona reads, content/persona/approval
+  updates are all `and(orgId, …)`-scoped; a client-supplied id can't reach
+  another tenant's row.
+- ✅ **Concurrent decisions** — approval and content-job decisions use an atomic
+  conditional update (`status = 'pending…'` in the `WHERE` + `.returning()`), so
+  two reviewers can't double-decide or double-audit.
+- ✅ **Campaign status machine** — `setStatus` validates against an explicit
+  transition map (`completed` is terminal); no jumps to arbitrary states.
+- ✅ **Autonomy gate is admin-only** — changing a campaign's autonomy mode now
+  requires `requireTenant("admin")`; the unused "content" approval type is gone.
+- ✅ **Per-org scan isolation** — `scanAllOrgs` / `scanAllComplianceOrgs` /
+  `analyzeAllOrgs` wrap each org in try/catch so one bad org can't abort the run.
+- ✅ **Scan-time SSRF re-check + send timeouts** — `scanFeed` re-validates the URL
+  before fetch; `sendEmail` races the send against a 10s timeout.
+- ✅ **Studio doc integrity** — `coerceBlock` is the single repair gate: persisted
+  JSON, merged form edits, and quiz answers all pass through it (unknown types
+  dropped, quiz `answer` clamped to a valid option index). HTML export allowlists
+  image URL schemes (`http(s)` / `data:image`) and `renderBlock` has a safe
+  default.
+- ✅ **Studio optimistic concurrency** — `mutateDoc` is a compare-and-set on
+  `updatedAt` with retry, so concurrent block edits can't silently clobber.
+
 ## Open decisions (need product input)
 
 1. **Module entitlements / packaging** — are modules sold separately (plan-gated)
