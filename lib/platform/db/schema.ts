@@ -129,3 +129,4 @@ export type OrgSettingsRow = typeof orgSettings.$inferSelect;
 export * from "@/lib/modules/behavior/schema";
 export * from "@/lib/modules/compliance/schema";
 export * from "@/lib/modules/campaigns/schema";
+export * from "@/lib/modules/studio/schema";

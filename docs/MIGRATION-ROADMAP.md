@@ -106,10 +106,24 @@ proper module on the shared spine.
 
 ## Phase 3 — Studio (Make)
 
-Make *is* the foundation, so this is largely **lift, not rewrite**: move its
-course engine, media generation, and composer into `lib/modules/studio/` +
-`app/(app)/studio/`. Its billing/quotas/brand-kits/templates graduate into the
-platform layer (shared by all modules), not the module.
+Make *is* the foundation, so this is largely **lift, not rewrite**.
+
+**Delivered (this increment):** module is live on the shared spine —
+
+- ✅ **eLearning authoring** — block-based courses (`studio_projects`): heading,
+  text, bullets, quiz, image, divider; add/edit/reorder/remove; publish toggle.
+- ✅ **AI course generation** — turn a topic into a validated course doc via the
+  shared Anthropic client.
+- ✅ **Standalone HTML export** — `/api/studio/courses/[id]/export` renders a
+  self-contained, escaped HTML document.
+- ✅ **Media library** — `studio_media_assets` with provider-gated generation
+  requests (image/video/voice queued until a provider is configured).
+- ✅ Shared `orgAnthropicKey` helper centralized in `lib/platform/ai.ts`
+  (Compliance + Campaigns + Studio).
+
+**Remaining:** media-provider integrations (ElevenLabs / fal / Synthesia /
+HeyGen / OpenRouter), the timeline video composer, SCORM/xAPI packaging, and
+graduating Make's billing/quotas/brand-kits into the platform layer.
 
 ## Phase 4 — Campaigns (Mirage)
 

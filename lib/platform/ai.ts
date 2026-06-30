@@ -5,8 +5,15 @@
 // can override the platform key later via the `apiKey` option.
 
 import { str } from "./env";
+import { getOrgSecret } from "./secrets";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
+
+// The Anthropic key to use for an org: its own encrypted secret if set, else the
+// platform-wide env key. Returns null when neither is configured (callers skip).
+export async function orgAnthropicKey(orgId: string): Promise<string | null> {
+  return (await getOrgSecret(orgId, "anthropicApiKey")) || str("ANTHROPIC_API_KEY");
+}
 const DEFAULT_MODEL = str("ANTHROPIC_MODEL") || "claude-sonnet-4-6";
 
 export interface CompleteOptions {

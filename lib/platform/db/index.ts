@@ -12,6 +12,7 @@ import * as schema from "./schema";
 import { migrateBehavior } from "@/lib/modules/behavior/migrate";
 import { migrateCompliance } from "@/lib/modules/compliance/migrate";
 import { migrateCampaigns } from "@/lib/modules/campaigns/migrate";
+import { migrateStudio } from "@/lib/modules/studio/migrate";
 
 const globalForDb = globalThis as unknown as { __jerichoPool?: Pool };
 
@@ -38,7 +39,7 @@ export { schema };
 
 // Module migrators run after the platform DDL. Adding a ported module = import
 // its migrate fn and push it here.
-const MODULE_MIGRATORS: Array<(client: PoolClient) => Promise<void>> = [migrateBehavior, migrateCompliance, migrateCampaigns];
+const MODULE_MIGRATORS: Array<(client: PoolClient) => Promise<void>> = [migrateBehavior, migrateCompliance, migrateCampaigns, migrateStudio];
 
 let migrated = false;
 

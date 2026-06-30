@@ -48,7 +48,7 @@ export const MODULES: ModuleDef[] = [
     icon: "🎬",
     href: "/studio",
     sourceApp: "Make (Content Studio)",
-    status: "planned",
+    status: "live",
   },
   {
     id: "campaigns",

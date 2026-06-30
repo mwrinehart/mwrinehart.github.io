@@ -9,14 +9,10 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { complete } from "@/lib/platform/ai";
-import { getOrgSecret } from "@/lib/platform/secrets";
-import { str } from "@/lib/platform/env";
+import { complete, orgAnthropicKey } from "@/lib/platform/ai";
 import { complianceFindings, compliancePolicies, type CompliancePolicyRow } from "./schema";
 
-export async function aiKeyFor(orgId: string): Promise<string | null> {
-  return (await getOrgSecret(orgId, "anthropicApiKey")) || str("ANTHROPIC_API_KEY");
-}
+export const aiKeyFor = orgAnthropicKey;
 
 interface Analysis {
   summary: string;

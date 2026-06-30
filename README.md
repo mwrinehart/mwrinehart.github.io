@@ -5,10 +5,10 @@ single, multi-tenant platform with a shared spine and pluggable modules.
 
 | Module | Rebuilt from | What it does | Status |
 | --- | --- | --- | --- |
-| **Behavior** | CBM-Next | Human-risk management: risk scoring, behaviors, training nudges, threat pulse | **Live (anchor)** |
-| **Compliance** | Horizon Scanner | Regulatory & threat-feed scanning, AI summaries, policy mapping, alerting | Planned |
-| **Studio** | Make (Content Studio) | AI media generation + eLearning authoring (SCORM/xAPI) | Planned |
-| **Campaigns** | Mirage | Narrative campaign simulation with approval gates and audit | Planned |
+| **Behavior** | CBM-Next | Human-risk management: risk scoring, behaviors, training nudges, threat pulse | Live |
+| **Compliance** | Horizon Scanner | Regulatory & threat-feed scanning, AI summaries, policy mapping, alerting | Live |
+| **Studio** | Make (Content Studio) | eLearning authoring + AI course generation + HTML export (media gen provider-gated) | Live |
+| **Campaigns** | Mirage | Narrative campaign simulation: mission control, autonomy-gated content, approvals, audit | Live |
 
 Instead of four apps each re-implementing auth, organizations, RBAC, secret
 storage, notifications, RSS scanning, and an AI client, the platform provides all

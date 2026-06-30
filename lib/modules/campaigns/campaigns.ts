@@ -6,9 +6,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { complete } from "@/lib/platform/ai";
-import { getOrgSecret } from "@/lib/platform/secrets";
-import { str } from "@/lib/platform/env";
+import { complete, orgAnthropicKey } from "@/lib/platform/ai";
 import { campaignApprovals, campaigns } from "./schema";
 import { logAudit } from "./audit";
 
@@ -70,9 +68,7 @@ export async function setAutonomyMode(orgId: string, userId: string, id: string,
   await logAudit(orgId, id, userId, `campaign.autonomy.${mode}`);
 }
 
-export async function aiKeyFor(orgId: string): Promise<string | null> {
-  return (await getOrgSecret(orgId, "anthropicApiKey")) || str("ANTHROPIC_API_KEY");
-}
+export const aiKeyFor = orgAnthropicKey;
 
 export async function generateBlueprint(orgId: string, userId: string, id: string): Promise<void> {
   const campaign = await getCampaign(orgId, id);
