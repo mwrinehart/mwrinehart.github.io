@@ -55,8 +55,21 @@ export async function deleteProject(orgId: string, id: string): Promise<void> {
   await db.delete(projects).where(and(eq(projects.orgId, orgId), eq(projects.id, id)));
 }
 
-export async function saveDoc(orgId: string, id: string, doc: CourseDoc): Promise<void> {
-  await db.update(projects).set({ data: JSON.stringify(doc), updatedAt: Date.now() }).where(and(eq(projects.orgId, orgId), eq(projects.id, id)));
+// Replace a project's whole doc. When `expectedUpdatedAt` is supplied this is a
+// compare-and-set (returns false if the row changed underneath) so a long-running
+// producer — e.g. AI course generation — can't blindly clobber edits the user
+// made while it ran. Without it, it's an unconditional write.
+export async function saveDoc(orgId: string, id: string, doc: CourseDoc, expectedUpdatedAt?: number): Promise<boolean> {
+  const where =
+    expectedUpdatedAt === undefined
+      ? and(eq(projects.orgId, orgId), eq(projects.id, id))
+      : and(eq(projects.orgId, orgId), eq(projects.id, id), eq(projects.updatedAt, expectedUpdatedAt));
+  const written = await db
+    .update(projects)
+    .set({ data: JSON.stringify(doc), updatedAt: Date.now() })
+    .where(where)
+    .returning({ id: projects.id });
+  return written.length > 0;
 }
 
 // Read-modify-write a project's doc under optimistic concurrency: the write only

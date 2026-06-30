@@ -18,6 +18,9 @@ export async function migrateBehavior(client: PoolClient): Promise<void> {
       created_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_behavior_people_org ON behavior_people(org_id);
+    -- One person per (org, email). Email is always stored lowercased, so this
+    -- also makes upsertPerson's insert atomic via ON CONFLICT.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_behavior_people_email ON behavior_people(org_id, email);
 
     CREATE TABLE IF NOT EXISTS behaviors (
       id TEXT PRIMARY KEY,

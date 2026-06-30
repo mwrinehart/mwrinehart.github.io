@@ -37,12 +37,17 @@ export interface Classification {
 
 const parser = new Parser({ timeout: 15000 });
 
+// Hard cap on items taken from a single feed/connector per scan, so a feed (or a
+// hostile/compromised endpoint) returning a huge list can't drive unbounded
+// inserts and alert dispatch in one scan tick.
+export const MAX_FEED_ITEMS = 200;
+
 export async function scanFeed(url: string, feedName: string): Promise<FeedItem[]> {
   // Re-validate at fetch time, not just at add time: a stored feed's host may now
   // resolve to a private/metadata address (DNS change or rebinding).
   await assertSafeFeedUrl(url);
   const feed = await parser.parseURL(url);
-  return (feed.items ?? []).map((it) => ({
+  return (feed.items ?? []).slice(0, MAX_FEED_ITEMS).map((it) => ({
     title: it.title?.trim() || "(untitled)",
     link: it.link?.trim() || "",
     summary: (it.contentSnippet || it.content || "").trim().slice(0, 2000),
@@ -106,8 +111,13 @@ function ipv6Blocked(ip: string): boolean {
   if (x === "::1" || x === "::") return true; // loopback, unspecified
   if (x.startsWith("fe8") || x.startsWith("fe9") || x.startsWith("fea") || x.startsWith("feb")) return true; // link-local fe80::/10
   if (x.startsWith("fc") || x.startsWith("fd")) return true; // unique-local fc00::/7
-  const mapped = x.match(/(?:::ffff:)(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return ipv4Blocked(mapped[1]); // IPv4-mapped
+  if (x.startsWith("64:ff9b:")) return true; // NAT64 well-known prefix — can wrap private IPv4
+  if (x.startsWith("2002:")) return true; // 6to4 — embeds an IPv4 address
+  // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d): if a trailing
+  // dotted quad is present, vet it through the IPv4 rules so e.g.
+  // ::ffff:169.254.169.254 (cloud metadata) and ::127.0.0.1 are blocked.
+  const dotted = x.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dotted && (x.startsWith("::ffff:") || x.startsWith("::"))) return ipv4Blocked(dotted[1]);
   return false;
 }
 

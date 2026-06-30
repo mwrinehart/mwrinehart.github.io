@@ -18,6 +18,15 @@ import { str } from "./env";
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 
+// Escape the three characters Slack treats as control characters in message text.
+// Subject/body can carry attacker-influenced content (e.g. an RSS item title that
+// became a pulse/compliance alert), so without this a feed item titled
+// `<https://evil|Click here>` would render as a clickable link in the org's Slack.
+// https://api.slack.com/reference/surfaces/formatting#escaping
+function slackEscape(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // Cache SMTP transports by connection URL (mirrors the pg pool) so a high-volume
 // digest run reuses one pooled connection instead of opening one per send.
 const globalForMail = globalThis as unknown as { __jerichoMailers?: Map<string, Transporter> };
@@ -52,7 +61,7 @@ export interface NotifyResult {
 }
 
 async function sendSlack(secrets: OrgSecrets, target: string | undefined, input: NotifyInput): Promise<NotifyResult> {
-  const text = input.subject ? `*${input.subject}*\n${input.body}` : input.body;
+  const text = input.subject ? `*${slackEscape(input.subject)}*\n${slackEscape(input.body)}` : slackEscape(input.body);
   const botToken = secrets.slackBotToken;
   if (botToken) {
     const channel = target || secrets.slackDefaultChannel;

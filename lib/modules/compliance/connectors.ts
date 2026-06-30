@@ -12,7 +12,7 @@
 import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { assertSafeFeedUrl, type FeedItem } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, MAX_FEED_ITEMS, type FeedItem } from "@/lib/platform/feeds";
 import { complianceConnectors } from "./schema";
 
 export type ConnectorType = "federal-register" | "hhs-breach" | "oig-workplan";
@@ -107,7 +107,7 @@ async function fetchJsonEndpoint(config: ConnectorConfig, sourceName: string): P
     for (const k of keys) if (typeof r[k] === "string" && (r[k] as string).trim()) return (r[k] as string).trim();
     return "";
   };
-  return rows.map((r) => ({
+  return rows.slice(0, MAX_FEED_ITEMS).map((r) => ({
     title: pick(r, ["title", "name", "subject", "entity"]) || "(untitled)",
     link: pick(r, ["link", "url", "html_url", "href"]),
     summary: pick(r, ["summary", "description", "abstract", "details"]).slice(0, 2000),

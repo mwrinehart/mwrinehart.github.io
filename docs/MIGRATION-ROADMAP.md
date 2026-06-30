@@ -223,6 +223,47 @@ A 15-finding review after the Campaigns/Studio builds; all applied:
 - ✅ **Studio optimistic concurrency** — `mutateDoc` is a compare-and-set on
   `updatedAt` with retry, so concurrent block edits can't silently clobber.
 
+### Third review pass (full-app: spine + all four modules) — resolved
+
+A 6-finder full-application pass (platform spine, API/webhooks, each module, plus
+cross-cutting tenant-isolation and authz sweeps). The authz sweep confirmed
+**no missing-auth and no cross-tenant breaches** — `requireTenant` discipline
+holds everywhere. Fixes applied:
+
+- ✅ **Secret-wipe on decrypt failure** — `setOrgSecrets` now decrypts the
+  existing blob with a strict path and *refuses to write* if it can't, instead of
+  merging a patch over `{}` and destroying every other org secret. Read paths stay
+  lenient.
+- ✅ **Auth/secrets fail-closed on `NODE_ENV`** — the passwordless dev login and
+  the insecure dev master-key now require an *explicit* `development` env (or
+  opt-in flag), not the mere absence of production; password login no longer
+  auto-enables just because SSO is unset.
+- ✅ **`behavior_people` unique index** — added `UNIQUE(org_id, email)` and made
+  `upsertPerson` an atomic `ON CONFLICT DO NOTHING` insert, closing the
+  select-then-insert duplicate-person race.
+- ✅ **Studio `saveDoc` CAS** — AI course generation now compare-and-sets on the
+  `updatedAt` it read, so it can't clobber edits made during the (multi-second)
+  generation; `coursegen` routes output through the single `coerceBlock` gate.
+- ✅ **Content-job stale-status write** — `generateJobContent` promotes
+  `draft → generated` via a SQL `CASE` on the live column, not a pre-AI-call read,
+  so an interleaved decision isn't reverted. Risk scores reject non-finite input.
+- ✅ **AI cost/DoS bounds** — policy context capped (≤60), feed/connector items
+  capped per scan (≤200), and the analyze cron now bounds on *attempts* so a
+  failing org can't drive unbounded API calls.
+- ✅ **Cron hardening** — secret accepted via the `Authorization` header only (no
+  query-string logging) and compared as fixed-width SHA-256 digests (no length
+  leak / throw).
+- ✅ **Slack injection** — alert subject/body are Slack-escaped, so a malicious
+  feed item title can't render as a clickable link in the org's channel.
+- ✅ **Export SVG** — `data:image/svg+xml` dropped from the image allowlist (SVG
+  is an active format); IPv6 SSRF guard extended (NAT64 / 6to4 / IPv4-compatible).
+
+Residual (documented follow-ups): **pulse/compliance auto-routes only fire on
+insert-novelty** — an item whose severity is later raised by a new keyword rule
+isn't re-routed; fixing it well needs a "max severity dispatched" column rather
+than coupling routing to insert. Connect-time IP pinning (full DNS-rebind
+defense) and per-org timezone for trend bucketing also remain.
+
 ## Open decisions (need product input)
 
 1. **Module entitlements / packaging** — are modules sold separately (plan-gated)

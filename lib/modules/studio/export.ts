@@ -13,13 +13,16 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// Only allow image URLs we'd actually render: http(s) and data:image. This blocks
-// javascript:/vbscript:/data:text-html and other scheme-based injection that an
-// escaped-but-unvalidated src= would otherwise admit. Returns null if disallowed.
+// Only allow image URLs we'd actually render: http(s) and raster data: images.
+// This blocks javascript:/vbscript:/data:text-html and other scheme-based
+// injection. `data:image/svg+xml` is deliberately EXCLUDED — SVG is an active
+// document format (it can carry scripts/foreignObject), and this export markets
+// itself as a self-contained "host-anywhere" file, so we don't want attacker-
+// authored SVG riding along. Returns null if disallowed.
 function safeImageUrl(url: string): string | null {
   const u = url.trim();
   if (/^https?:\/\//i.test(u)) return u;
-  if (/^data:image\/[a-z0-9.+-]+;/i.test(u)) return u;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp|avif|bmp|x-icon);/i.test(u)) return u;
   return null;
 }
 

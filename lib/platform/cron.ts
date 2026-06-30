@@ -5,7 +5,7 @@
 // Each module contributes jobs the same way it contributes migrators: export a
 // CronJob[] and register it here. Every execution is recorded in cron_runs.
 
-import { randomUUID, timingSafeEqual } from "crypto";
+import { createHash, randomUUID, timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { cronRuns } from "./db/schema";
@@ -34,9 +34,13 @@ export function getJob(id: string): CronJob | null {
 export function authorizeCron(provided: string | null): boolean {
   const expected = str("CRON_SECRET");
   if (!expected || !provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  // Hash both sides to a fixed 32-byte width before comparing. This keeps the
+  // comparison constant-time AND avoids leaking the secret's length via the
+  // length-equality short-circuit (and avoids timingSafeEqual's throw on
+  // unequal-length buffers).
+  const a = createHash("sha256").update(provided).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 export interface CronRunResult {

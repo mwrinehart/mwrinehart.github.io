@@ -37,7 +37,7 @@ docker compose logs -f app   # watch "[migrate] platform + module schema ready"
 | --- | --- |
 | `DOMAIN` | your domain, e.g. `app.jerichosecurity.com` |
 | `AUTH_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
-| `PLATFORM_MASTER_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` (encrypts per-org secrets — losing/changing it makes stored org secrets unreadable) |
+| `PLATFORM_MASTER_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` (encrypts per-org secrets — **required** unless `NODE_ENV=development`; losing/changing it makes stored org secrets unreadable, and a secret write will now refuse rather than silently wipe them) |
 | `POSTGRES_PASSWORD` | a strong password |
 | `AUTH_SSO_PROVIDER` + OIDC vars | for production SSO (set `AUTH_DEV_LOGIN=0`) |
 | `PLATFORM_ADMIN_EMAILS` | comma-separated admin emails |
@@ -46,8 +46,11 @@ docker compose logs -f app   # watch "[migrate] platform + module schema ready"
 `DATABASE_URL` is injected by `docker-compose.yml` (points at the `db` service) —
 don't set it in `.env` for the Docker deployment.
 
-> **Production:** set `AUTH_DEV_LOGIN=0` and configure real SSO before exposing
-> the app. The dev login is for local development only.
+> **Production:** the passwordless dev login is now hard-off unless
+> `NODE_ENV=development` or `AUTH_DEV_LOGIN=1`, so a deploy that left `NODE_ENV`
+> unset won't expose it — but configure real SSO before exposing the app.
+> Email+password login is also off by default in production; set
+> `AUTH_PASSWORD_LOGIN=1` to enable it.
 
 ## Schema / migrations
 

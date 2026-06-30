@@ -9,7 +9,7 @@
 //   - autonomy "manual"          → always pending_review (an admin decides)
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { complete } from "@/lib/platform/ai";
 import { aiKeyFor, getCampaign } from "./campaigns";
@@ -17,6 +17,13 @@ import { campaignContentJobs, campaignPersonas, type CampaignContentJobRow, type
 import { logAudit } from "./audit";
 
 const REVIEW_RISK_THRESHOLD = 40;
+
+// Clamp to 0-100, treating non-finite input (NaN from `Number("abc")`) as 0 so a
+// junk risk value can't slip a job past the review-mode gate as "low risk".
+function clampRisk(n: number | undefined): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+}
 
 export type GateStatus = "approved" | "pending_review" | "blocked";
 
@@ -56,7 +63,7 @@ export async function createJob(
     personaId: input.personaId || null,
     channel: input.channel,
     brief: input.brief.trim(),
-    riskScore: Math.max(0, Math.min(100, input.riskScore ?? 0)),
+    riskScore: clampRisk(input.riskScore),
     status: "draft",
     createdByUserId: userId,
     createdAt: now,
@@ -91,9 +98,16 @@ export async function generateJobContent(orgId: string, userId: string, jobId: s
     },
   );
 
+  // Promote draft → generated against the LIVE status, not the value read before
+  // the multi-second AI call: if the job was submitted/decided meanwhile, this
+  // CASE leaves that newer status intact instead of reverting it.
   await db
     .update(campaignContentJobs)
-    .set({ generatedContent: content, status: job.status === "draft" ? "generated" : job.status, updatedAt: Date.now() })
+    .set({
+      generatedContent: content,
+      status: sql`CASE WHEN ${campaignContentJobs.status} = 'draft' THEN 'generated' ELSE ${campaignContentJobs.status} END`,
+      updatedAt: Date.now(),
+    })
     .where(and(eq(campaignContentJobs.orgId, orgId), eq(campaignContentJobs.id, jobId)));
   await logAudit(orgId, job.campaignId, userId, "content.generated", job.channel);
 }

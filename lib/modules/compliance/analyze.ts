@@ -7,12 +7,17 @@
 // org's own Anthropic key (secret `anthropicApiKey`) when set, else the platform
 // env key; orgs with neither are skipped.
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { complete, orgAnthropicKey } from "@/lib/platform/ai";
 import { complianceFindings, compliancePolicies, type CompliancePolicyRow } from "./schema";
 
 export const aiKeyFor = orgAnthropicKey;
+
+// Bound the policy context sent to the model so an org with thousands of
+// policies can't build a multi-MB prompt (context-window failures + runaway
+// token cost) on every finding analyzed.
+const MAX_POLICY_CONTEXT = 60;
 
 interface Analysis {
   summary: string;
@@ -22,9 +27,12 @@ interface Analysis {
 
 function policyContext(policies: CompliancePolicyRow[]): string {
   if (policies.length === 0) return "(The organization has not configured any policies.)";
-  return policies
-    .map((p) => `- ${p.reference ? `[${p.reference}] ` : ""}${p.title}${p.category ? ` (${p.category})` : ""}${p.content ? `: ${p.content.slice(0, 300)}` : ""}`)
-    .join("\n");
+  const shown = policies.slice(0, MAX_POLICY_CONTEXT);
+  const lines = shown.map(
+    (p) => `- ${p.reference ? `[${p.reference}] ` : ""}${p.title}${p.category ? ` (${p.category})` : ""}${p.content ? `: ${p.content.slice(0, 300)}` : ""}`,
+  );
+  if (policies.length >= MAX_POLICY_CONTEXT) lines.push(`- (only the first ${MAX_POLICY_CONTEXT} policies are included in this analysis)`);
+  return lines.join("\n");
 }
 
 function parseAnalysis(raw: string): Analysis | null {
@@ -57,7 +65,11 @@ export async function analyzeFinding(orgId: string, findingId: string): Promise<
   )[0];
   if (!finding) throw new Error("Finding not found");
 
-  const policies = await db.select().from(compliancePolicies).where(eq(compliancePolicies.orgId, orgId));
+  const policies = await db
+    .select()
+    .from(compliancePolicies)
+    .where(eq(compliancePolicies.orgId, orgId))
+    .limit(MAX_POLICY_CONTEXT);
 
   const userMsg = [
     `FINDING (severity ${finding.severity}${finding.category ? `, category ${finding.category}` : ""}):`,
@@ -78,7 +90,7 @@ export async function analyzeFinding(orgId: string, findingId: string): Promise<
       mappedPolicies: JSON.stringify(analysis.policies),
       analyzedAt: Date.now(),
     })
-    .where(eq(complianceFindings.id, findingId));
+    .where(and(eq(complianceFindings.orgId, orgId), eq(complianceFindings.id, findingId)));
 }
 
 // Analyze up to `limit` not-yet-analyzed findings for one org.
@@ -88,6 +100,9 @@ export async function analyzeNewFindings(orgId: string, limit = 10): Promise<{ a
     .select({ id: complianceFindings.id })
     .from(complianceFindings)
     .where(and(eq(complianceFindings.orgId, orgId), isNull(complianceFindings.analyzedAt)))
+    // Highest composite relevance first so a limited run spends its budget on the
+    // most important findings rather than arbitrary backlog order.
+    .orderBy(desc(complianceFindings.score), desc(complianceFindings.scannedAt))
     .limit(limit);
   let analyzed = 0;
   let errors = 0;
@@ -103,21 +118,26 @@ export async function analyzeNewFindings(orgId: string, limit = 10): Promise<{ a
 }
 
 // Global cron entry: analyze unanalyzed findings across orgs, bounded per run.
-export async function analyzeAllOrgs(limit = 25): Promise<{ analyzed: number }> {
+export async function analyzeAllOrgs(limit = 25): Promise<{ analyzed: number; attempted: number }> {
   const rows = await db
     .select({ orgId: complianceFindings.orgId })
     .from(complianceFindings)
     .where(isNull(complianceFindings.analyzedAt));
   const orgIds = [...new Set(rows.map((r) => r.orgId))];
   let analyzed = 0;
+  let attempted = 0;
   for (const orgId of orgIds) {
-    if (analyzed >= limit) break;
+    // Bound on ATTEMPTS, not just successes: a failing/poisoned org's findings
+    // each cost a real API call even when they error, so counting only successes
+    // would let one org drive unbounded calls past the per-run cap.
+    if (attempted >= limit) break;
     try {
-      const r = await analyzeNewFindings(orgId, limit - analyzed);
+      const r = await analyzeNewFindings(orgId, limit - attempted);
       analyzed += r.analyzed;
+      attempted += r.analyzed + r.errors;
     } catch {
       // Isolate per-org failures so one org doesn't abort the rest of the run.
     }
   }
-  return { analyzed };
+  return { analyzed, attempted };
 }

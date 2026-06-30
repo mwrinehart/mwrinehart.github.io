@@ -20,3 +20,7 @@ export function list(name: string): string[] {
 }
 
 export const isProd = process.env.NODE_ENV === "production";
+// Explicit local development only — NOT merely "not production". Used to gate
+// insecure conveniences (dev login, dev master key) so a staging/preview deploy
+// or one with NODE_ENV unset fails closed instead of opening them.
+export const isDev = process.env.NODE_ENV === "development";

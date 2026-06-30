@@ -120,32 +120,36 @@ async function upsertPerson(orgId: string, row: Record<string, unknown>): Promis
   const department = pickStr(row, ["department", "dept", "division"]);
   const groupName = pickStr(row, ["group", "groupName", "team", "teamName"]);
 
-  const existing = await db
-    .select({ id: behaviorPeople.id })
-    .from(behaviorPeople)
-    .where(and(eq(behaviorPeople.orgId, orgId), eq(behaviorPeople.email, email.toLowerCase())));
-
-  if (existing[0]) {
-    // Only update fields the source actually provided (avoids an empty .set()).
-    const patch: Record<string, string> = {};
-    if (name) patch.name = name;
-    if (department) patch.department = department;
-    if (groupName) patch.groupName = groupName;
-    if (Object.keys(patch).length) {
-      await db.update(behaviorPeople).set(patch).where(eq(behaviorPeople.id, existing[0].id));
-    }
-  } else {
-    await db.insert(behaviorPeople).values({
+  const emailLc = email.toLowerCase();
+  // Atomic insert: if (org_id, email) already exists, ON CONFLICT DO NOTHING
+  // returns no row. This closes the select-then-insert race where two concurrent
+  // syncs both miss the existing row and both insert a duplicate person.
+  const inserted = await db
+    .insert(behaviorPeople)
+    .values({
       id: randomUUID(),
       orgId,
-      email: email.toLowerCase(),
+      email: emailLc,
       name,
       department,
       groupName,
       riskScore: 0,
       lastActiveAt: pickDate(row, ["lastActive", "lastActiveAt", "lastLogin"]),
       createdAt: Date.now(),
-    });
+    })
+    .onConflictDoNothing({ target: [behaviorPeople.orgId, behaviorPeople.email] })
+    .returning({ id: behaviorPeople.id });
+
+  if (inserted.length) return; // freshly created
+
+  // Already existed (or a concurrent insert won the race): patch only the fields
+  // the source actually provided (avoids an empty .set()).
+  const patch: Record<string, string> = {};
+  if (name) patch.name = name;
+  if (department) patch.department = department;
+  if (groupName) patch.groupName = groupName;
+  if (Object.keys(patch).length) {
+    await db.update(behaviorPeople).set(patch).where(and(eq(behaviorPeople.orgId, orgId), eq(behaviorPeople.email, emailLc)));
   }
 }
 

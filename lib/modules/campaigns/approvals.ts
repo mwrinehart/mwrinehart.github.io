@@ -46,7 +46,7 @@ export async function requestApproval(
     type: input.type,
     title: input.title.trim(),
     detail: input.detail ?? null,
-    riskScore: Math.max(0, Math.min(100, input.riskScore ?? 0)),
+    riskScore: Number.isFinite(Number(input.riskScore)) ? Math.max(0, Math.min(100, Number(input.riskScore))) : 0,
     status: "pending",
     requestedByUserId: userId,
     createdAt: Date.now(),

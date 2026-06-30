@@ -18,7 +18,7 @@ import { db } from "./db";
 import { users } from "./db/schema";
 import { upsertUser } from "./orgs";
 import { verifyPassword } from "./password";
-import { bool, isProd, str } from "./env";
+import { bool, isDev, isProd, str } from "./env";
 
 type SsoProvider = "none" | "oidc";
 
@@ -36,8 +36,15 @@ const ssoProvider = selectedSsoProvider();
 const oidcConfigured = !!(str("OIDC_ISSUER") && str("OIDC_CLIENT_ID") && str("OIDC_CLIENT_SECRET"));
 const googleConfigured = !!(str("GOOGLE_CLIENT_ID") && str("GOOGLE_CLIENT_SECRET"));
 
-export const passwordLoginEnabled = !isProd || bool("AUTH_PASSWORD_LOGIN") || ssoProvider === "none";
-export const devLoginEnabled = !isProd || bool("AUTH_DEV_LOGIN");
+// Password login: on in local dev, otherwise ONLY when explicitly enabled. The
+// old `ssoProvider === "none"` clause force-enabled it for any prod deploy that
+// hadn't configured SSO — an unintended auth surface. Operators who want
+// password auth in prod set AUTH_PASSWORD_LOGIN=1.
+export const passwordLoginEnabled = !isProd || bool("AUTH_PASSWORD_LOGIN");
+// Dev login is a PASSWORDLESS provider — gate it on an explicit development
+// environment (or an explicit opt-in), never on the mere absence of production,
+// so a misconfigured deploy can't expose a no-credentials login.
+export const devLoginEnabled = isDev || bool("AUTH_DEV_LOGIN");
 
 const providers: NextAuthConfig["providers"] = [];
 
