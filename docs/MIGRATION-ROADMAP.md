@@ -92,11 +92,17 @@ proper module on the shared spine.
   useful/not-useful votes build a preference model that re-ranks future findings.
   Keywords/tuning tab shows match counts + what the model learned.
 
+- ✅ **External ingestion connectors** — a connector framework feeding the same
+  classify/score/dedupe/alert pipeline as RSS feeds. Federal Register works via its
+  public JSON API; HHS breach + OIG work plan ingest from a tenant-configured JSON
+  endpoint (no stable public API — Horizon scraped them). Toggled + configured on
+  the Feeds tab; scanned by the same `compliance-scan` job.
+
 **Remaining in Phase 2:**
 
-- **Federal Register / breach-portal / OIG** ingestion connectors.
 - **SharePoint / Power Automate** as additional alert channels (replacing
   `sharepoint-sync.js` / `powerautomate-sync.js`).
+- HTML-scraping fallback for HHS breach / OIG (vs. the configured-endpoint model).
 
 ## Phase 3 — Studio (Make)
 

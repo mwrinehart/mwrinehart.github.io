@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requireTenant } from "@/lib/platform/org";
 import { listFeeds, listFindings, scanOrgComplianceFeeds } from "@/lib/modules/compliance/scan";
 import { aiKeyFor, analyzeFinding, analyzeNewFindings } from "@/lib/modules/compliance/analyze";
+import { listEnabledConnectors } from "@/lib/modules/compliance/connectors";
 import { recordFeedback, votesByFinding } from "@/lib/modules/compliance/feedback";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 
@@ -29,13 +30,14 @@ function parsePolicies(json: string | null): Array<{ reference?: string; title?:
 // Compliance Radar — findings, with AI summaries + policy cross-reference.
 export default async function ComplianceFindingsPage() {
   const { orgId } = await requireTenant();
-  const [feeds, findings, aiKey, votes] = await Promise.all([
+  const [feeds, findings, aiKey, votes, connectors] = await Promise.all([
     listFeeds(orgId),
     listFindings(orgId),
     aiKeyFor(orgId),
     votesByFinding(orgId),
+    listEnabledConnectors(orgId),
   ]);
-  const hasFeeds = feeds.some((f) => f.enabled);
+  const hasFeeds = feeds.some((f) => f.enabled) || connectors.length > 0;
   const aiAvailable = !!aiKey;
   const unanalyzed = findings.some((f) => !f.analyzedAt);
 
@@ -98,14 +100,14 @@ export default async function ComplianceFindingsPage() {
       )}
 
       {findings.length === 0 ? (
-        <EmptyState title={hasFeeds ? "No findings yet" : "No feeds configured"}>
+        <EmptyState title={hasFeeds ? "No findings yet" : "No sources configured"}>
           {hasFeeds ? (
             <>
               Click “Scan now”, or wait for the scheduled <code>compliance-scan</code> job.
             </>
           ) : (
             <>
-              Add feeds on the{" "}
+              Add a feed or enable a connector on the{" "}
               <Link href="/compliance/feeds" className="text-jericho-accent hover:underline">
                 Feeds
               </Link>{" "}

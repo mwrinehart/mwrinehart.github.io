@@ -90,5 +90,18 @@ export async function migrateCompliance(client: PoolClient): Promise<void> {
       created_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_compliance_routes_org ON compliance_auto_routes(org_id);
+
+    CREATE TABLE IF NOT EXISTS compliance_connectors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      config TEXT,
+      last_scanned_at BIGINT,
+      last_error TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_connectors_unique ON compliance_connectors(org_id, type);
   `);
 }

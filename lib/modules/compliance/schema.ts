@@ -100,8 +100,23 @@ export const complianceAutoRoutes = pgTable("compliance_auto_routes", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+// Built-in external ingestion connectors (Federal Register, HHS breach, OIG
+// workplan) — toggled + configured per org. One row per (org, type).
+export const complianceConnectors = pgTable("compliance_connectors", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  type: text("type").notNull(), // federal-register | hhs-breach | oig-workplan
+  enabled: boolean("enabled").notNull().default(false),
+  config: text("config"), // JSON: { terms?, agencies?, url? }
+  lastScannedAt: bigint("last_scanned_at", { mode: "number" }),
+  lastError: text("last_error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
 export type ComplianceFeedRow = typeof complianceFeeds.$inferSelect;
 export type CompliancePolicyRow = typeof compliancePolicies.$inferSelect;
 export type ComplianceFindingRow = typeof complianceFindings.$inferSelect;
 export type ComplianceAutoRouteRow = typeof complianceAutoRoutes.$inferSelect;
 export type ComplianceKeywordRow = typeof complianceKeywords.$inferSelect;
+export type ComplianceConnectorRow = typeof complianceConnectors.$inferSelect;

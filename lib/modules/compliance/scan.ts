@@ -6,10 +6,11 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type FeedItem, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
 import { buildPreferenceModel, scoreFinding } from "./scoring";
-import { complianceAutoRoutes, complianceFeeds, complianceFindings, complianceKeywords, compliancePolicies } from "./schema";
+import { connectorLabel, fetchConnectorItems, listEnabledConnectors, markConnectorScanned } from "./connectors";
+import { complianceAutoRoutes, complianceConnectors, complianceFeeds, complianceFindings, complianceKeywords, compliancePolicies } from "./schema";
 
 // Built-in compliance/regulatory classifier. Tenants don't have to configure
 // keywords; these give scanned items sensible severity + category out of the box.
@@ -208,6 +209,7 @@ export interface ScanResult {
 
 export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult> {
   const feeds = (await listFeeds(orgId)).filter((f) => f.enabled);
+  const connectors = await listEnabledConnectors(orgId);
   const result: ScanResult = { scannedFeeds: 0, added: 0, errors: [] };
 
   // Tenant tuning: custom keywords augment the built-in classifier, and the
@@ -222,58 +224,77 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
   const model = await buildPreferenceModel(orgId);
   const now = Date.now();
 
+  // Shared per-item ingestion used by both RSS feeds and connectors.
+  const ingest = async (feedId: string | null, sourceName: string, items: FeedItem[]) => {
+    for (const item of items) {
+      if (!item.link) continue;
+      const c = classifyItem(item, rules);
+      const publishedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
+      const score = scoreFinding(
+        { severity: c.severity, category: c.categories[0] ?? null, feedName: sourceName, matched: c.matched, publishedAt },
+        model,
+        now,
+      );
+      const inserted = await db
+        .insert(complianceFindings)
+        .values({
+          id: randomUUID(),
+          orgId,
+          feedId,
+          feedName: sourceName,
+          title: item.title,
+          summary: item.summary,
+          link: item.link,
+          severity: c.severity,
+          category: c.categories[0] ?? null,
+          keywords: c.matched.join(", ") || null,
+          publishedAt,
+          scannedAt: now,
+          score,
+        })
+        .onConflictDoNothing()
+        .returning({ id: complianceFindings.id });
+      if (inserted.length > 0) {
+        result.added++;
+        for (const term of c.matched) {
+          const id = customByTerm.get(term.toLowerCase());
+          if (id) matchTally.set(id, (matchTally.get(id) ?? 0) + 1);
+        }
+        await dispatchAutoRoutes(orgId, {
+          title: item.title,
+          link: item.link,
+          summary: item.summary,
+          severity: c.severity,
+          category: c.categories[0] ?? null,
+        });
+      }
+    }
+  };
+
   for (const feed of feeds) {
     try {
       const items = await scanFeed(feed.url, feed.name);
       result.scannedFeeds++;
-      for (const item of items) {
-        if (!item.link) continue;
-        const c = classifyItem(item, rules);
-        const publishedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
-        const score = scoreFinding(
-          { severity: c.severity, category: c.categories[0] ?? null, feedName: feed.name, matched: c.matched, publishedAt },
-          model,
-          now,
-        );
-        const inserted = await db
-          .insert(complianceFindings)
-          .values({
-            id: randomUUID(),
-            orgId,
-            feedId: feed.id,
-            feedName: feed.name,
-            title: item.title,
-            summary: item.summary,
-            link: item.link,
-            severity: c.severity,
-            category: c.categories[0] ?? null,
-            keywords: c.matched.join(", ") || null,
-            publishedAt,
-            scannedAt: now,
-            score,
-          })
-          .onConflictDoNothing()
-          .returning({ id: complianceFindings.id });
-        if (inserted.length > 0) {
-          result.added++;
-          for (const term of c.matched) {
-            const id = customByTerm.get(term.toLowerCase());
-            if (id) matchTally.set(id, (matchTally.get(id) ?? 0) + 1);
-          }
-          await dispatchAutoRoutes(orgId, {
-            title: item.title,
-            link: item.link,
-            summary: item.summary,
-            severity: c.severity,
-            category: c.categories[0] ?? null,
-          });
-        }
-      }
+      await ingest(feed.id, feed.name, items);
       await db.update(complianceFeeds).set({ lastScannedAt: now, lastError: null }).where(eq(complianceFeeds.id, feed.id));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(`${feed.name}: ${msg}`);
       await db.update(complianceFeeds).set({ lastScannedAt: now, lastError: msg }).where(eq(complianceFeeds.id, feed.id));
+    }
+  }
+
+  for (const conn of connectors) {
+    const label = connectorLabel(conn.type);
+    try {
+      const items = await fetchConnectorItems(conn.type, conn.config);
+      result.scannedFeeds++;
+      await ingest(null, label, items);
+      await markConnectorScanned(orgId, conn.type, null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.errors.push(`${label}: ${msg}`);
+      await markConnectorScanned(orgId, conn.type, msg);
     }
   }
 
@@ -289,8 +310,11 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
 // Global scan across every org with an enabled feed — driven by the
 // compliance-scan cron job.
 export async function scanAllComplianceOrgs(): Promise<{ orgs: number; added: number }> {
-  const feeds = await db.select({ orgId: complianceFeeds.orgId }).from(complianceFeeds).where(eq(complianceFeeds.enabled, true));
-  const orgIds = [...new Set(feeds.map((f) => f.orgId))];
+  const [feeds, conns] = await Promise.all([
+    db.select({ orgId: complianceFeeds.orgId }).from(complianceFeeds).where(eq(complianceFeeds.enabled, true)),
+    db.select({ orgId: complianceConnectors.orgId }).from(complianceConnectors).where(eq(complianceConnectors.enabled, true)),
+  ]);
+  const orgIds = [...new Set([...feeds.map((f) => f.orgId), ...conns.map((c) => c.orgId)])];
   let added = 0;
   for (const orgId of orgIds) {
     const r = await scanOrgComplianceFeeds(orgId);
