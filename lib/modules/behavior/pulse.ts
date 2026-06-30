@@ -8,7 +8,7 @@
 // platform cron job).
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
@@ -59,7 +59,7 @@ export function listFeeds(orgId: string) {
 }
 
 export async function addFeed(orgId: string, input: { name: string; url: string; category?: string }): Promise<void> {
-  assertSafeFeedUrl(input.url);
+  await assertSafeFeedUrl(input.url);
   await db.insert(pulseFeeds).values({
     id: randomUUID(),
     orgId,
@@ -135,10 +135,16 @@ interface Finding {
   category: string | null;
 }
 
-// Push one finding to any matching enabled auto-route.
-async function dispatchAutoRoutes(orgId: string, finding: Finding): Promise<void> {
-  const routes = (await listAutoRoutes(orgId)).filter((r) => r.enabled);
+type AutoRoute = Awaited<ReturnType<typeof listAutoRoutes>>[number];
+
+// Cap alerts per scan so a backlog can't storm channels; budget is shared across
+// the whole scan run.
+const MAX_ALERTS_PER_SCAN = 25;
+
+// Push one finding to any matching enabled auto-route (routes fetched once per scan).
+async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: Finding, budget: { remaining: number }): Promise<void> {
   for (const route of routes) {
+    if (budget.remaining <= 0) return;
     if (!severityAtLeast(finding.severity, route.severityMin as Severity)) continue;
     if (route.categories) {
       const cats = route.categories.split(",").map((c) => c.trim().toLowerCase());
@@ -153,9 +159,10 @@ async function dispatchAutoRoutes(orgId: string, finding: Finding): Promise<void
       module: "behavior",
     });
     if (res.status === "sent") {
+      budget.remaining--;
       await db
         .update(pulseAutoRoutes)
-        .set({ sentCount: route.sentCount + 1, lastSentAt: Date.now() })
+        .set({ sentCount: sql`${pulseAutoRoutes.sentCount} + 1`, lastSentAt: Date.now() })
         .where(eq(pulseAutoRoutes.id, route.id));
     }
   }
@@ -177,6 +184,8 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
   ];
 
   const result: ScanResult = { scannedFeeds: 0, added: 0, errors: [] };
+  const routes = (await listAutoRoutes(orgId)).filter((r) => r.enabled);
+  const alertBudget = { remaining: MAX_ALERTS_PER_SCAN };
 
   for (const feed of feeds) {
     try {
@@ -185,6 +194,8 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
       for (const item of items) {
         if (!item.link) continue;
         const c = classifyItem(item, rules);
+        const parsedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
+        const publishedAt = parsedAt != null && Number.isFinite(parsedAt) ? parsedAt : null;
         const inserted = await db
           .insert(pulseFindings)
           .values({
@@ -198,7 +209,7 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
             severity: c.severity,
             category: c.categories[0] ?? null,
             keywords: c.matched.join(", ") || null,
-            publishedAt: item.publishedAt ? new Date(item.publishedAt).getTime() : null,
+            publishedAt,
             scannedAt: Date.now(),
           })
           .onConflictDoNothing()
@@ -206,13 +217,13 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
 
         if (inserted.length > 0) {
           result.added++;
-          await dispatchAutoRoutes(orgId, {
+          await dispatchAutoRoutes(routes, orgId, {
             title: item.title,
             link: item.link,
             summary: item.summary,
             severity: c.severity,
             category: c.categories[0] ?? null,
-          });
+          }, alertBudget);
         }
       }
       await db.update(pulseFeeds).set({ lastScannedAt: Date.now() }).where(eq(pulseFeeds.id, feed.id));

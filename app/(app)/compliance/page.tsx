@@ -50,7 +50,12 @@ export default async function ComplianceFindingsPage() {
   async function analyzeOne(formData: FormData) {
     "use server";
     const { orgId } = await requireTenant("member");
-    await analyzeFinding(orgId, String(formData.get("id") || ""));
+    try {
+      await analyzeFinding(orgId, String(formData.get("id") || ""));
+    } catch {
+      // AI/parse failure: leave the finding unanalyzed (cron will retry) rather
+      // than surfacing an unhandled server-action error to the user.
+    }
     revalidatePath("/compliance");
   }
   async function analyzeNew() {

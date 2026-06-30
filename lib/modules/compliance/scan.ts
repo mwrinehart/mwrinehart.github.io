@@ -4,7 +4,7 @@
 // compliance-flavored ruleset, dedupe by link, and store findings.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type FeedItem, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
@@ -50,7 +50,7 @@ export function listFeeds(orgId: string) {
 }
 
 export async function addFeed(orgId: string, input: { name: string; url: string; category?: string }): Promise<void> {
-  assertSafeFeedUrl(input.url);
+  await assertSafeFeedUrl(input.url);
   await db.insert(complianceFeeds).values({
     id: randomUUID(),
     orgId,
@@ -165,9 +165,15 @@ interface AlertFinding {
   category: string | null;
 }
 
-async function dispatchAutoRoutes(orgId: string, finding: AlertFinding): Promise<void> {
-  const routes = (await listAutoRoutes(orgId)).filter((r) => r.enabled);
+type AutoRoute = Awaited<ReturnType<typeof listAutoRoutes>>[number];
+
+// Cap alerts per scan so a first scan / backlog can't trigger a notification
+// storm. `budget` is shared across the whole scan run.
+const MAX_ALERTS_PER_SCAN = 25;
+
+async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: AlertFinding, budget: { remaining: number }): Promise<void> {
   for (const route of routes) {
+    if (budget.remaining <= 0) return;
     if (!severityAtLeast(finding.severity, route.severityMin as Severity)) continue;
     if (route.categories) {
       const cats = route.categories.split(",").map((c) => c.trim().toLowerCase());
@@ -182,9 +188,11 @@ async function dispatchAutoRoutes(orgId: string, finding: AlertFinding): Promise
       module: "compliance",
     });
     if (res.status === "sent") {
+      budget.remaining--;
+      // SQL increment avoids the stale-read lost-update across many findings / concurrent scans.
       await db
         .update(complianceAutoRoutes)
-        .set({ sentCount: route.sentCount + 1, lastSentAt: Date.now() })
+        .set({ sentCount: sql`${complianceAutoRoutes.sentCount} + 1`, lastSentAt: Date.now() })
         .where(eq(complianceAutoRoutes.id, route.id));
     }
   }
@@ -224,12 +232,18 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
   const model = await buildPreferenceModel(orgId);
   const now = Date.now();
 
+  // Auto-routes are static for the scan — fetch once, and share an alert budget
+  // across all findings so a backlog can't storm channels.
+  const routes = (await listAutoRoutes(orgId)).filter((r) => r.enabled);
+  const alertBudget = { remaining: MAX_ALERTS_PER_SCAN };
+
   // Shared per-item ingestion used by both RSS feeds and connectors.
   const ingest = async (feedId: string | null, sourceName: string, items: FeedItem[]) => {
     for (const item of items) {
       if (!item.link) continue;
       const c = classifyItem(item, rules);
-      const publishedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
+      const parsedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
+      const publishedAt = parsedAt != null && Number.isFinite(parsedAt) ? parsedAt : null;
       const score = scoreFinding(
         { severity: c.severity, category: c.categories[0] ?? null, feedName: sourceName, matched: c.matched, publishedAt },
         model,
@@ -260,13 +274,13 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
           const id = customByTerm.get(term.toLowerCase());
           if (id) matchTally.set(id, (matchTally.get(id) ?? 0) + 1);
         }
-        await dispatchAutoRoutes(orgId, {
+        await dispatchAutoRoutes(routes, orgId, {
           title: item.title,
           link: item.link,
           summary: item.summary,
           severity: c.severity,
           category: c.categories[0] ?? null,
-        });
+        }, alertBudget);
       }
     }
   };
@@ -299,9 +313,12 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
   }
 
   // Persist how often each custom keyword fired (visible on the Keywords tab).
+  // SQL increment avoids the stale start-of-scan read clobbering concurrent scans.
   for (const [id, count] of matchTally) {
-    const row = custom.find((k) => k.id === id);
-    if (row) await db.update(complianceKeywords).set({ matchCount: row.matchCount + count }).where(eq(complianceKeywords.id, id));
+    await db
+      .update(complianceKeywords)
+      .set({ matchCount: sql`${complianceKeywords.matchCount} + ${count}` })
+      .where(and(eq(complianceKeywords.orgId, orgId), eq(complianceKeywords.id, id)));
   }
 
   return result;

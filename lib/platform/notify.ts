@@ -10,11 +10,26 @@
 //   - Teams via incoming WEBHOOK posting a MessageCard (target = webhook URL).
 
 import { randomUUID } from "crypto";
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import { db } from "./db";
 import { notificationLog } from "./db/schema";
 import { getOrgSecrets, type OrgSecrets } from "./secrets";
 import { str } from "./env";
+
+const WEBHOOK_TIMEOUT_MS = 10_000;
+
+// Cache SMTP transports by connection URL (mirrors the pg pool) so a high-volume
+// digest run reuses one pooled connection instead of opening one per send.
+const globalForMail = globalThis as unknown as { __jerichoMailers?: Map<string, Transporter> };
+function transportFor(url: string): Transporter {
+  const cache = (globalForMail.__jerichoMailers ??= new Map());
+  let t = cache.get(url);
+  if (!t) {
+    t = nodemailer.createTransport(url);
+    cache.set(url, t);
+  }
+  return t;
+}
 
 export type NotifyChannel = "slack" | "teams" | "email";
 
@@ -46,6 +61,7 @@ async function sendSlack(secrets: OrgSecrets, target: string | undefined, input:
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${botToken}` },
       body: JSON.stringify({ channel, text }),
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     return data.ok ? { status: "sent" } : { status: "failed", error: data.error || `http ${res.status}` };
@@ -56,6 +72,7 @@ async function sendSlack(secrets: OrgSecrets, target: string | undefined, input:
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
   });
   return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
@@ -76,6 +93,7 @@ async function sendTeams(secrets: OrgSecrets, target: string | undefined, input:
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(card),
+    signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
   });
   return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
@@ -85,7 +103,7 @@ async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: Not
   const url = secrets.smtpUrl || str("SMTP_URL");
   if (!url) return { status: "skipped", error: "SMTP not configured" };
   const from = secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
-  const transport = nodemailer.createTransport(url);
+  const transport = transportFor(url);
   await transport.sendMail({
     from,
     to,

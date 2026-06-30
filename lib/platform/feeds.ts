@@ -6,6 +6,8 @@
 // once; the Compliance and Behavior modules supply their own feed lists and
 // keyword rules and consume the results.
 
+import { lookup } from "dns/promises";
+import { isIP } from "net";
 import Parser from "rss-parser";
 
 export type Severity = "low" | "medium" | "high" | "critical";
@@ -73,11 +75,47 @@ export function severityAtLeast(value: Severity, min: Severity): boolean {
   return SEVERITY_RANK[value] >= SEVERITY_RANK[min];
 }
 
-// Lightweight SSRF guard for user-supplied feed URLs, shared by every module that
-// lets tenants add feeds (Behavior Pulse, Compliance). Rejects non-http(s) and
-// private/loopback/link-local hosts. (Full DNS-rebind protection at resolve time
-// is a follow-up.)
-export function assertSafeFeedUrl(raw: string): URL {
+// SSRF guard for user-supplied feed/connector URLs, shared by every module that
+// fetches a tenant-provided URL server-side (Behavior Pulse, Compliance feeds and
+// connectors). It resolves the host via DNS and rejects if ANY resolved address
+// is private/loopback/link-local/reserved — which also defeats encoded-IP tricks
+// (decimal/octal/hex) since the resolver normalizes them. Residual risk: DNS
+// rebinding between this check and the fetch; full protection requires pinning the
+// resolved IP at connect time (follow-up).
+
+function ipv4Blocked(ip: string): boolean {
+  const o = ip.split(".").map(Number);
+  if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  const [a, b] = o;
+  if (a === 0 || a === 10 || a === 127) return true; // this-network, private, loopback
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 172 && b >= 16 && b <= 31) return true; // private
+  if (a === 192 && b === 168) return true; // private
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a === 192 && b === 0 && o[2] === 0) return true; // IETF protocol assignments
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
+  if (a >= 224) return true; // multicast + reserved
+  return false;
+}
+
+function ipv6Blocked(ip: string): boolean {
+  const x = ip.toLowerCase();
+  if (x === "::1" || x === "::") return true; // loopback, unspecified
+  if (x.startsWith("fe8") || x.startsWith("fe9") || x.startsWith("fea") || x.startsWith("feb")) return true; // link-local fe80::/10
+  if (x.startsWith("fc") || x.startsWith("fd")) return true; // unique-local fc00::/7
+  const mapped = x.match(/(?:::ffff:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return ipv4Blocked(mapped[1]); // IPv4-mapped
+  return false;
+}
+
+function addressBlocked(ip: string): boolean {
+  const fam = isIP(ip);
+  if (fam === 4) return ipv4Blocked(ip);
+  if (fam === 6) return ipv6Blocked(ip);
+  return true; // not a recognizable IP → block
+}
+
+export async function assertSafeFeedUrl(raw: string): Promise<URL> {
   let u: URL;
   try {
     u = new URL(raw);
@@ -85,16 +123,13 @@ export function assertSafeFeedUrl(raw: string): URL {
     throw new Error("Invalid feed URL");
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("Feed URL must be http(s)");
-  const host = u.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "::1" ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  ) {
+  let addrs: Array<{ address: string }>;
+  try {
+    addrs = await lookup(u.hostname, { all: true });
+  } catch {
+    throw new Error("Feed URL host could not be resolved");
+  }
+  if (addrs.length === 0 || addrs.some((a) => addressBlocked(a.address))) {
     throw new Error("Feed URL host is not allowed");
   }
   return u;

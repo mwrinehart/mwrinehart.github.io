@@ -140,6 +140,26 @@ These benefit every module and aren't owned by one:
 - **Commercial product, no gov/DoD.** Mirage's DoD tenant class and
   classification features are dropped from the Campaigns module.
 
+## Code-review follow-ups (deferred from the review fix batch)
+
+The high-value batch (SSRF guard hardening, notify timeouts + cached SMTP
+transport, per-scan alert cap + hoisted route query + SQL-increment counters, AI
+JSON-parse guard, NaN-date guard) is applied. Still open:
+
+- **External-sync pagination** — Litmos sync + `activateAssignment` user lookup
+  fetch only `limit=200&start=0`; paginate so orgs with >200 users aren't
+  silently truncated.
+- **Litmos response envelope** — `activateAssignment` assumes `/users` returns a
+  bare array; use the envelope-aware extractor.
+- **Report-credit time window** — risk scoring credits "reported" events with no
+  90-day window (behaviors use one); align the time bases.
+- **Risk-trend direction** — `getOrgRiskTrend` compares only first/last day-bucket
+  and buckets by UTC; use a real slope and per-org timezone.
+- **Empty email on first insert** — `upsertUser` can persist `email=""` when a
+  provider omits the claim.
+- **Auth hot-path queries** — `getActiveOrgId` + `requireTenant` run the
+  membership lookup twice per request.
+
 ## Open decisions (need product input)
 
 1. **Module entitlements / packaging** — are modules sold separately (plan-gated)

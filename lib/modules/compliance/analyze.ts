@@ -31,16 +31,20 @@ function policyContext(policies: CompliancePolicyRow[]): string {
     .join("\n");
 }
 
-function parseAnalysis(raw: string): Analysis {
-  // Tolerate code fences / surrounding prose.
-  const match = raw.match(/\{[\s\S]*\}/);
-  const json = match ? match[0] : raw;
-  const data = JSON.parse(json) as Partial<Analysis>;
-  return {
-    summary: typeof data.summary === "string" ? data.summary : "",
-    actions: Array.isArray(data.actions) ? data.actions.filter((a) => typeof a === "string") : [],
-    policies: Array.isArray(data.policies) ? data.policies : [],
-  };
+function parseAnalysis(raw: string): Analysis | null {
+  // Tolerate code fences / surrounding prose. Returns null on malformed JSON so
+  // callers can decide (rather than throwing out of a server action).
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    const data = JSON.parse(match ? match[0] : raw) as Partial<Analysis>;
+    return {
+      summary: typeof data.summary === "string" ? data.summary : "",
+      actions: Array.isArray(data.actions) ? data.actions.filter((a) => typeof a === "string") : [],
+      policies: Array.isArray(data.policies) ? data.policies.filter((p) => p && typeof p === "object") : [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 const SYSTEM =
@@ -68,6 +72,7 @@ export async function analyzeFinding(orgId: string, findingId: string): Promise<
 
   const out = await complete([{ role: "user", content: userMsg }], { system: SYSTEM, maxTokens: 700, apiKey });
   const analysis = parseAnalysis(out);
+  if (!analysis) throw new Error("AI returned unparseable output");
 
   await db
     .update(complianceFindings)

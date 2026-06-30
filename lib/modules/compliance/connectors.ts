@@ -12,7 +12,7 @@
 import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import type { FeedItem } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, type FeedItem } from "@/lib/platform/feeds";
 import { complianceConnectors } from "./schema";
 
 export type ConnectorType = "federal-register" | "hhs-breach" | "oig-workplan";
@@ -90,6 +90,7 @@ async function fetchFederalRegister(config: ConnectorConfig): Promise<FeedItem[]
 // Generic JSON-endpoint fetcher for connectors without a stable public API.
 async function fetchJsonEndpoint(config: ConnectorConfig, sourceName: string): Promise<FeedItem[]> {
   if (!config.url) throw new Error("No source URL configured");
+  await assertSafeFeedUrl(config.url); // SSRF guard — same as tenant-added feeds
   const res = await fetch(config.url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`${sourceName} ${res.status}`);
   const json = await res.json();
