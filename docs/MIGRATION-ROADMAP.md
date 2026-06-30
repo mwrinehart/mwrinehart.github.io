@@ -159,21 +159,35 @@ gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 These benefit every module and aren't owned by one:
 
 - **Impersonation** — port Make's HMAC-cookie admin impersonation (table exists).
-- **Billing** — graduate Make's Stripe + usage ledger + plan quotas to the platform.
+  The platform-admin console (below) is the home for it when built.
+- **Billing** — graduate Make's Stripe + usage ledger + plan quotas to the
+  platform. (Plan is editable today by a platform admin; metering/checkout are
+  the missing pieces.)
 - **SSO/SAML** — add SAML as an Auth.js provider behind `AUTH_SSO_PROVIDER` so
   Horizon's Passport-SAML users migrate cleanly; consolidate on one IdP path.
 - **Object storage** — Make notes media-as-data-URL tech debt; add S3/R2.
-- **Email transport** — wire nodemailer into the unified notifier (currently
-  Slack/Teams send; email is logged + skipped).
-- ✅ **Tests + CI** — Vitest is wired (`npm test`) with a first suite over the
+- ✅ **Email transport** — nodemailer wired into the unified notifier (URL-keyed
+  cached transport, 10s send timeout); configurable per-org from the
+  integrations UI.
+- ✅ **Org integrations UI** — `/settings/integrations` configures per-org Slack /
+  Teams / SMTP / Anthropic credentials in the encrypted secret store (values
+  never rendered back; admin-gated). This is what makes the notify + AI features
+  usable without env-only config.
+- ✅ **Members + invites** — `/settings/members` manages roles (owner-guarded,
+  last-owner protected) and email-bound invites; acceptance via `/invite/[token]`
+  and the onboarding screen.
+- ✅ **Platform-admin console** — `/admin` (gated by `PLATFORM_ADMIN_EMAILS`) lists
+  all orgs/users with member counts and plan control. Impersonation is the next
+  addition here.
+- ✅ **Tests + CI** — Vitest is wired (`npm test`) with a suite over the
   highest-risk pure logic — feed classifier + severity ranking, AES-256-GCM
   secret round-trip/tamper, the Studio `coerceBlock` repair gate, HTML-export
   escaping + image-scheme allowlist, the campaign autonomy gate, composite
-  scoring, password hashing, and the cron authorizer. GitHub Actions
-  (`.github/workflows/ci.yml`) runs typecheck → tests → build on every push/PR.
-  Next: DB-backed integration tests (tenant isolation, the upsert/CAS races)
-  against a throwaway Postgres service in CI.
-- **Invites + member management UI** — schema exists; build the admin console.
+  scoring, password hashing, the cron authorizer, and the platform-admin gate.
+  GitHub Actions (`.github/workflows/ci.yml`) runs typecheck → tests → build on
+  every push/PR. Next: DB-backed integration tests (tenant isolation, the
+  upsert/CAS races, membership/invite flows) against a throwaway Postgres service
+  in CI.
 
 ## Resolved decisions
 

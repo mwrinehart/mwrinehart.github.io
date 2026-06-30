@@ -5,7 +5,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "./db";
 import { orgMembers, orgs, users, type UserRow } from "./db/schema";
-import { getUserEmail } from "./org";
 import { list } from "./env";
 
 export function isPlatformAdmin(email: string | null | undefined): boolean {
@@ -15,7 +14,10 @@ export function isPlatformAdmin(email: string | null | undefined): boolean {
 
 // Authorize the caller as a platform admin (driven solely by PLATFORM_ADMIN_EMAILS,
 // independent of org roles). Throws otherwise — call from every admin server action.
+// `org` (→ auth → next-auth) is imported dynamically so this module's static graph
+// stays free of next-auth, keeping isPlatformAdmin unit-testable outside Next.
 export async function requirePlatformAdmin(): Promise<string> {
+  const { getUserEmail } = await import("./org");
   const email = await getUserEmail();
   if (!isPlatformAdmin(email)) throw new Error("Platform admin access required.");
   return email as string;
