@@ -70,7 +70,7 @@ export async function setAutonomyMode(orgId: string, userId: string, id: string,
   await logAudit(orgId, id, userId, `campaign.autonomy.${mode}`);
 }
 
-async function aiKeyFor(orgId: string): Promise<string | null> {
+export async function aiKeyFor(orgId: string): Promise<string | null> {
   return (await getOrgSecret(orgId, "anthropicApiKey")) || str("ANTHROPIC_API_KEY");
 }
 

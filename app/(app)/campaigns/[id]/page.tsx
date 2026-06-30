@@ -11,21 +11,25 @@ import {
 } from "@/lib/modules/campaigns/campaigns";
 import { addPersona, listPersonas, setPersonaStatus } from "@/lib/modules/campaigns/personas";
 import { campaignGateStatus, listApprovalsForCampaign, requestApproval, type ApprovalType } from "@/lib/modules/campaigns/approvals";
+import { createJob, decideJob, generateJobContent, listJobs, submitJob } from "@/lib/modules/campaigns/content";
 import { listCampaignAudit } from "@/lib/modules/campaigns/audit";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 
 const STATUS_TONE: Record<string, string> = { active: "low", completed: "medium", draft: "high", paused: "high" };
+const JOB_TONE: Record<string, string> = { approved: "low", generated: "medium", draft: "medium", pending_review: "medium", blocked: "high", rejected: "high" };
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { orgId } = await requireTenant();
+  const { orgId, role } = await requireTenant();
   const campaign = await getCampaign(orgId, id);
   if (!campaign) notFound();
+  const canDecide = role === "admin" || role === "owner";
 
-  const [personas, approvals, gate, audit] = await Promise.all([
+  const [personas, approvals, gate, jobs, audit] = await Promise.all([
     listPersonas(orgId, id),
     listApprovalsForCampaign(orgId, id),
     campaignGateStatus(orgId, id),
+    listJobs(orgId, id),
     listCampaignAudit(orgId, id),
   ]);
 
@@ -80,6 +84,40 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       detail: String(formData.get("detail") || "") || undefined,
       riskScore: Number(formData.get("riskScore") || 0),
     });
+    revalidatePath(`/campaigns/${id}`);
+  }
+  async function addJob(formData: FormData) {
+    "use server";
+    const { orgId, userId } = await requireTenant("member");
+    await createJob(orgId, userId, id, {
+      channel: String(formData.get("channel") || "email"),
+      brief: String(formData.get("brief") || ""),
+      personaId: String(formData.get("personaId") || "") || undefined,
+      riskScore: Number(formData.get("riskScore") || 0),
+    });
+    revalidatePath(`/campaigns/${id}`);
+  }
+  async function jobGenerate(formData: FormData) {
+    "use server";
+    const { orgId, userId } = await requireTenant("member");
+    try {
+      await generateJobContent(orgId, userId, String(formData.get("jid") || ""));
+    } catch {
+      // No AI key / model error — leave content empty.
+    }
+    revalidatePath(`/campaigns/${id}`);
+  }
+  async function jobSubmit(formData: FormData) {
+    "use server";
+    const { orgId, userId } = await requireTenant("member");
+    await submitJob(orgId, userId, String(formData.get("jid") || ""));
+    revalidatePath(`/campaigns/${id}`);
+  }
+  async function jobDecide(formData: FormData) {
+    "use server";
+    const { orgId, userId } = await requireTenant("admin");
+    const decision = String(formData.get("decision") || "") === "approved" ? "approved" : "rejected";
+    await decideJob(orgId, userId, String(formData.get("jid") || ""), decision);
     revalidatePath(`/campaigns/${id}`);
   }
 
@@ -210,6 +248,74 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </Panel>
       </div>
 
+      <Panel className="mb-4">
+        <h3 className="font-medium mb-1">Content jobs</h3>
+        <p className="text-xs text-jericho-muted mb-3">
+          Submitting runs the autonomy gate: this campaign is <span className="text-jericho-text">{campaign.status}</span> with autonomy{" "}
+          <span className="text-jericho-text">{campaign.autonomyMode}</span>.
+        </p>
+
+        <ul className="space-y-3 mb-4">
+          {jobs.length === 0 && <li className="text-sm text-jericho-muted">No content jobs yet.</li>}
+          {jobs.map((j) => (
+            <li key={j.id} className="rounded-lg border border-jericho-border/60 p-3">
+              <div className="flex items-center gap-2">
+                <Badge tone={JOB_TONE[j.status] ?? "medium"}>{j.status.replace("_", " ")}</Badge>
+                <span className="text-xs text-jericho-muted">{j.channel}</span>
+                <span className="text-xs text-jericho-muted">risk {j.riskScore}</span>
+                <div className="ml-auto flex items-center gap-2">
+                  {j.status !== "approved" && j.status !== "rejected" && (
+                    <>
+                      <SmallAction action={jobGenerate} jid={j.id}>{j.generatedContent ? "Regenerate" : "Generate"}</SmallAction>
+                      <SmallAction action={jobSubmit} jid={j.id}>Submit</SmallAction>
+                    </>
+                  )}
+                  {j.status === "pending_review" && canDecide && (
+                    <>
+                      <form action={jobDecide} className="inline">
+                        <input type="hidden" name="jid" value={j.id} />
+                        <input type="hidden" name="decision" value="approved" />
+                        <button className="text-sm text-jericho-good hover:underline" type="submit">approve</button>
+                      </form>
+                      <form action={jobDecide} className="inline">
+                        <input type="hidden" name="jid" value={j.id} />
+                        <input type="hidden" name="decision" value="rejected" />
+                        <button className="text-sm text-jericho-bad hover:underline" type="submit">reject</button>
+                      </form>
+                    </>
+                  )}
+                </div>
+              </div>
+              {j.brief && <div className="text-sm text-jericho-text mt-1">{j.brief}</div>}
+              {j.blockReason && <div className="text-xs text-jericho-warn mt-1">blocked: {j.blockReason}</div>}
+              {j.generatedContent && (
+                <pre className="whitespace-pre-wrap text-xs text-jericho-muted mt-2 max-h-40 overflow-y-auto border-l-2 border-jericho-border pl-3">{j.generatedContent}</pre>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <form action={addJob} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+          <select name="channel" className="rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent">
+            <option value="email">email</option>
+            <option value="sms">sms</option>
+            <option value="voice">voice</option>
+            <option value="social">social</option>
+          </select>
+          <select name="personaId" className="rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent">
+            <option value="">no persona</option>
+            {personas.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <input name="riskScore" type="number" min={0} max={100} placeholder="Risk" className="rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
+          <input name="brief" placeholder="Brief (what to draft)" required className="md:col-span-4 rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent" />
+          <div className="md:col-span-4">
+            <button className="rounded-lg bg-jericho-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90" type="submit">Add content job</button>
+          </div>
+        </form>
+      </Panel>
+
       <h3 className="text-sm uppercase tracking-wide text-jericho-muted mb-3">Recent activity</h3>
       {audit.length === 0 ? (
         <EmptyState title="No activity yet" />
@@ -237,6 +343,17 @@ function StatusButton({ action, status, children }: { action: (fd: FormData) => 
     <form action={action}>
       <input type="hidden" name="status" value={status} />
       <button className="rounded-lg bg-jericho-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90" type="submit">
+        {children}
+      </button>
+    </form>
+  );
+}
+
+function SmallAction({ action, jid, children }: { action: (fd: FormData) => Promise<void>; jid: string; children: React.ReactNode }) {
+  return (
+    <form action={action} className="inline">
+      <input type="hidden" name="jid" value={jid} />
+      <button className="text-sm text-jericho-accent hover:underline" type="submit">
         {children}
       </button>
     </form>

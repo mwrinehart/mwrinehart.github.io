@@ -59,5 +59,24 @@ export async function migrateCampaigns(client: PoolClient): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_campaign_audit_org ON campaign_audit(org_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_campaign_audit_cmp ON campaign_audit(campaign_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS campaign_content_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      campaign_id TEXT NOT NULL,
+      persona_id TEXT,
+      channel TEXT NOT NULL DEFAULT 'email',
+      brief TEXT,
+      generated_content TEXT,
+      risk_score INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'draft',
+      block_reason TEXT,
+      created_by_user_id TEXT,
+      decided_by_user_id TEXT,
+      decided_at BIGINT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_campaign_content_jobs_cmp ON campaign_content_jobs(org_id, campaign_id);
   `);
 }

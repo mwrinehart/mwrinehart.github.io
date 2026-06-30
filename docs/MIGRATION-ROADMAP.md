@@ -132,8 +132,13 @@ gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 - ✅ **Immutable audit log** — every action writes an actor-aware entry; per-campaign
   and org-wide views.
 
-**Remaining:** OSINT target workbench, content-job generation tied to autonomy
-mode, and a compliance/jurisdiction dashboard.
+- ✅ **Content jobs gated by autonomy** — a job brief is AI-drafted, then submitted
+  through `evaluateGate` (campaign status + autonomy mode + risk) resolving the
+  go/review/blocked decision: blocked when the campaign isn't active, auto-approved
+  under `auto`, risk-thresholded under `review`, always review under `manual`;
+  admins decide pending jobs. All audited.
+
+**Remaining:** OSINT target workbench and a compliance/jurisdiction dashboard.
 
 ## Cross-cutting platform follow-ups
 

@@ -67,7 +67,30 @@ export const campaignAudit = pgTable("campaign_audit", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+// Content jobs — the unit of work a campaign produces. A brief is AI-drafted,
+// then "submitted" through the autonomy gate (campaign status + autonomy mode +
+// risk) which resolves it to approved / pending_review / blocked.
+export const campaignContentJobs = pgTable("campaign_content_jobs", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  campaignId: text("campaign_id").notNull(),
+  personaId: text("persona_id"),
+  channel: text("channel").notNull().default("email"), // email | sms | voice | social
+  brief: text("brief"),
+  generatedContent: text("generated_content"),
+  riskScore: integer("risk_score").notNull().default(0),
+  // draft | generated | pending_review | approved | rejected | blocked
+  status: text("status").notNull().default("draft"),
+  blockReason: text("block_reason"),
+  createdByUserId: text("created_by_user_id"),
+  decidedByUserId: text("decided_by_user_id"),
+  decidedAt: bigint("decided_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
 export type CampaignRow = typeof campaigns.$inferSelect;
 export type CampaignPersonaRow = typeof campaignPersonas.$inferSelect;
 export type CampaignApprovalRow = typeof campaignApprovals.$inferSelect;
 export type CampaignAuditRow = typeof campaignAudit.$inferSelect;
+export type CampaignContentJobRow = typeof campaignContentJobs.$inferSelect;
