@@ -1,5 +1,7 @@
-import { requireTenant } from "@/lib/platform/org";
+import Link from "next/link";
+import { requireTenant, getUserEmail } from "@/lib/platform/org";
 import { listOrgsForUser } from "@/lib/platform/orgs";
+import { isPlatformAdmin } from "@/lib/platform/admin";
 import { MODULES } from "@/lib/platform/modules";
 import { Badge, PageHeader, Panel } from "@/components/ui";
 
@@ -7,10 +9,11 @@ export default async function SettingsPage() {
   const { orgId, userId, role } = await requireTenant();
   const orgs = await listOrgsForUser(userId);
   const current = orgs.find((o) => o.id === orgId);
+  const platformAdmin = isPlatformAdmin(await getUserEmail());
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Organization, modules, and integrations." />
+      <PageHeader title="Settings" subtitle="Organization, team, modules, and integrations." />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel>
@@ -21,10 +24,6 @@ export default async function SettingsPage() {
             <Row label="Your role" value={role} />
             <Row label="Org id" value={<code className="text-xs">{orgId}</code>} />
           </dl>
-          <p className="text-xs text-jericho-muted mt-4">
-            Branding, member management, invites, and billing land here as the platform admin console is ported from
-            Make.
-          </p>
         </Panel>
 
         <Panel>
@@ -39,13 +38,35 @@ export default async function SettingsPage() {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-jericho-muted mt-4">
-            Per-org module entitlements and encrypted integration credentials (Slack, Teams, Litmos, AI keys) are stored
-            via the platform secret store.
-          </p>
         </Panel>
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <NavCard href="/settings/members" icon="👥" title="Team & invites" desc="Invite teammates, change roles, remove members." />
+        <NavCard href="/settings/integrations" icon="🔌" title="Integrations" desc="Slack, Teams, email (SMTP), and AI credentials." />
+        {platformAdmin && (
+          <NavCard href="/admin" icon="🛡️" title="Platform admin" desc="All organizations and users across the platform." />
+        )}
+      </div>
     </>
+  );
+}
+
+function NavCard({ href, icon, title, desc }: { href: string; icon: string; title: string; desc: string }) {
+  return (
+    <Link href={href} className="block">
+      <Panel className="hover:border-jericho-accent transition-colors">
+        <div className="flex items-start gap-3">
+          <span className="text-xl" aria-hidden>
+            {icon}
+          </span>
+          <div>
+            <div className="font-medium text-jericho-text">{title}</div>
+            <div className="text-sm text-jericho-muted mt-0.5">{desc}</div>
+          </div>
+        </div>
+      </Panel>
+    </Link>
   );
 }
 

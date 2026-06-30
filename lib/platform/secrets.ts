@@ -100,3 +100,27 @@ export async function setOrgSecrets(orgId: string, patch: OrgSecrets): Promise<O
   await db.update(orgs).set({ encryptedSecrets: encryptJson(merged) }).where(eq(orgs.id, orgId));
   return merged;
 }
+
+// Remove specific keys from an org's secret blob (setOrgSecrets only merges, so it
+// can't delete). Shares the same refuse-on-undecryptable safety as setOrgSecrets.
+export async function clearOrgSecrets(orgId: string, keys: string[]): Promise<OrgSecrets> {
+  const rows = await db.select({ blob: orgs.encryptedSecrets }).from(orgs).where(eq(orgs.id, orgId));
+  const blob = rows[0]?.blob;
+  if (!blob) return {};
+  let existing: OrgSecrets;
+  try {
+    existing = decryptOrThrow<OrgSecrets>(blob);
+  } catch {
+    throw new Error("Existing org secrets could not be decrypted (PLATFORM_MASTER_KEY mismatch?). Refusing to overwrite.");
+  }
+  for (const k of keys) delete existing[k];
+  await db.update(orgs).set({ encryptedSecrets: encryptJson(existing) }).where(eq(orgs.id, orgId));
+  return existing;
+}
+
+// Which of the given keys currently have a non-empty value — for status display
+// WITHOUT exposing the secret values themselves.
+export async function getConfiguredSecretKeys(orgId: string, keys: string[]): Promise<Record<string, boolean>> {
+  const secrets = await getOrgSecrets(orgId);
+  return Object.fromEntries(keys.map((k) => [k, Boolean(secrets[k]?.trim())]));
+}
