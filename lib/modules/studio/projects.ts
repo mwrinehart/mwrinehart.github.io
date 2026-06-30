@@ -2,7 +2,7 @@
 // studio_projects.data; block ops load → mutate the array → save.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { projects, type StudioProjectRow } from "./schema";
 import { coerceBlock, emptyDoc, newBlock, type BlockType, type CourseDoc } from "./types";
@@ -22,6 +22,16 @@ export function parseDoc(data: string | null): CourseDoc {
 
 export function listProjects(orgId: string) {
   return db.select().from(projects).where(eq(projects.orgId, orgId)).orderBy(desc(projects.updatedAt));
+}
+
+// Cheap counts for the cross-module dashboard.
+export async function studioOverview(orgId: string): Promise<{ total: number; published: number }> {
+  const [tot] = await db.select({ n: sql<number>`count(*)` }).from(projects).where(eq(projects.orgId, orgId));
+  const [pub] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(projects)
+    .where(and(eq(projects.orgId, orgId), eq(projects.status, "published")));
+  return { total: Number(tot?.n ?? 0), published: Number(pub?.n ?? 0) };
 }
 
 export async function getProject(orgId: string, id: string): Promise<StudioProjectRow | null> {

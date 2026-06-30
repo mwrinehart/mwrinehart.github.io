@@ -4,7 +4,7 @@
 // compliance-flavored ruleset, dedupe by link, and store findings.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, severityRank, type FeedItem, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
@@ -210,6 +210,20 @@ export function listFindings(orgId: string, limit = 50) {
     .where(eq(complianceFindings.orgId, orgId))
     .orderBy(desc(complianceFindings.score), desc(complianceFindings.scannedAt))
     .limit(limit);
+}
+
+// Cheap counts for the cross-module dashboard.
+export async function complianceOverview(orgId: string): Promise<{ findings: number; critical: number; unanalyzed: number }> {
+  const [tot] = await db.select({ n: sql<number>`count(*)` }).from(complianceFindings).where(eq(complianceFindings.orgId, orgId));
+  const [crit] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(complianceFindings)
+    .where(and(eq(complianceFindings.orgId, orgId), eq(complianceFindings.severity, "critical")));
+  const [un] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(complianceFindings)
+    .where(and(eq(complianceFindings.orgId, orgId), isNull(complianceFindings.analyzedAt)));
+  return { findings: Number(tot?.n ?? 0), critical: Number(crit?.n ?? 0), unanalyzed: Number(un?.n ?? 0) };
 }
 
 export interface ScanResult {

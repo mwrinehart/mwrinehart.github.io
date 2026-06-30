@@ -5,7 +5,7 @@
 // requireTenant("admin") for decisions.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { notify } from "@/lib/platform/notify";
 import { campaignApprovals, campaigns } from "./schema";
@@ -23,6 +23,14 @@ export function listPendingApprovals(orgId: string) {
     .from(campaignApprovals)
     .where(and(eq(campaignApprovals.orgId, orgId), eq(campaignApprovals.status, "pending")))
     .orderBy(desc(campaignApprovals.createdAt));
+}
+
+export async function pendingApprovalCount(orgId: string): Promise<number> {
+  const [r] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(campaignApprovals)
+    .where(and(eq(campaignApprovals.orgId, orgId), eq(campaignApprovals.status, "pending")));
+  return Number(r?.n ?? 0);
 }
 
 export function listApprovalsForCampaign(orgId: string, campaignId: string) {

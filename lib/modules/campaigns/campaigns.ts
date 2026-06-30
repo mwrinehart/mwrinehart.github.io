@@ -4,7 +4,7 @@
 // into a blueprint by the shared Anthropic client. Every mutation is audited.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { complete, orgAnthropicKey } from "@/lib/platform/ai";
 import { campaignApprovals, campaigns } from "./schema";
@@ -15,6 +15,16 @@ export type AutonomyMode = "manual" | "review" | "auto";
 
 export function listCampaigns(orgId: string) {
   return db.select().from(campaigns).where(eq(campaigns.orgId, orgId)).orderBy(desc(campaigns.updatedAt));
+}
+
+// Cheap counts for the cross-module dashboard.
+export async function campaignsOverview(orgId: string): Promise<{ total: number; active: number }> {
+  const [tot] = await db.select({ n: sql<number>`count(*)` }).from(campaigns).where(eq(campaigns.orgId, orgId));
+  const [act] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(campaigns)
+    .where(and(eq(campaigns.orgId, orgId), eq(campaigns.status, "active")));
+  return { total: Number(tot?.n ?? 0), active: Number(act?.n ?? 0) };
 }
 
 export async function getCampaign(orgId: string, id: string) {
