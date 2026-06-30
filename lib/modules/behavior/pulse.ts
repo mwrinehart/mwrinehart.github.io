@@ -10,7 +10,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type KeywordRule, type Severity } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, severityRank, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
 import { pulseAutoRoutes, pulseFeeds, pulseFindings, pulseKeywords } from "./schema";
 
@@ -141,10 +141,13 @@ type AutoRoute = Awaited<ReturnType<typeof listAutoRoutes>>[number];
 // the whole scan run.
 const MAX_ALERTS_PER_SCAN = 25;
 
-// Push one finding to any matching enabled auto-route (routes fetched once per scan).
-async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: Finding, budget: { remaining: number }): Promise<void> {
+// Push one finding to any matching enabled auto-route (routes fetched once per
+// scan). Returns false if the alert budget ran out before all routes were
+// considered, so the caller knows not to record this finding as fully routed
+// (it should retry next scan).
+async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: Finding, budget: { remaining: number }): Promise<boolean> {
   for (const route of routes) {
-    if (budget.remaining <= 0) return;
+    if (budget.remaining <= 0) return false;
     if (!severityAtLeast(finding.severity, route.severityMin as Severity)) continue;
     if (route.categories) {
       const cats = route.categories.split(",").map((c) => c.trim().toLowerCase());
@@ -166,6 +169,7 @@ async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: F
         .where(eq(pulseAutoRoutes.id, route.id));
     }
   }
+  return true;
 }
 
 export interface ScanResult {
@@ -196,6 +200,8 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
         const c = classifyItem(item, rules);
         const parsedAt = item.publishedAt ? new Date(item.publishedAt).getTime() : null;
         const publishedAt = parsedAt != null && Number.isFinite(parsedAt) ? parsedAt : null;
+        const category = c.categories[0] ?? null;
+        const alertFinding: Finding = { title: item.title, link: item.link, summary: item.summary, severity: c.severity, category };
         const inserted = await db
           .insert(pulseFindings)
           .values({
@@ -207,7 +213,7 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
             summary: item.summary,
             link: item.link,
             severity: c.severity,
-            category: c.categories[0] ?? null,
+            category,
             keywords: c.matched.join(", ") || null,
             publishedAt,
             scannedAt: Date.now(),
@@ -217,13 +223,28 @@ export async function scanOrgFeeds(orgId: string): Promise<ScanResult> {
 
         if (inserted.length > 0) {
           result.added++;
-          await dispatchAutoRoutes(routes, orgId, {
-            title: item.title,
-            link: item.link,
-            summary: item.summary,
-            severity: c.severity,
-            category: c.categories[0] ?? null,
-          }, alertBudget);
+          const full = await dispatchAutoRoutes(routes, orgId, alertFinding, alertBudget);
+          if (full) await db.update(pulseFindings).set({ routedSeverity: c.severity }).where(eq(pulseFindings.id, inserted[0].id));
+        } else if (routes.length) {
+          // Finding already exists (deduped by link). Re-route only if a keyword
+          // rule has since raised its severity above what we last dispatched —
+          // an unchanged finding makes no noise, and adding a route doesn't
+          // back-blast history.
+          const existing = (
+            await db
+              .select({ id: pulseFindings.id, routedSeverity: pulseFindings.routedSeverity })
+              .from(pulseFindings)
+              .where(and(eq(pulseFindings.orgId, orgId), eq(pulseFindings.link, item.link)))
+          )[0];
+          if (existing && severityRank(c.severity) > severityRank(existing.routedSeverity as Severity | null)) {
+            const full = await dispatchAutoRoutes(routes, orgId, alertFinding, alertBudget);
+            if (full) {
+              await db
+                .update(pulseFindings)
+                .set({ severity: c.severity, category, keywords: c.matched.join(", ") || null, routedSeverity: c.severity })
+                .where(eq(pulseFindings.id, existing.id));
+            }
+          }
         }
       }
       await db.update(pulseFeeds).set({ lastScannedAt: Date.now() }).where(eq(pulseFeeds.id, feed.id));

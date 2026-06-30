@@ -257,12 +257,14 @@ holds everywhere. Fixes applied:
   feed item title can't render as a clickable link in the org's channel.
 - ✅ **Export SVG** — `data:image/svg+xml` dropped from the image allowlist (SVG
   is an active format); IPv6 SSRF guard extended (NAT64 / 6to4 / IPv4-compatible).
+- ✅ **Auto-route re-dispatch on severity escalation** — pulse/compliance findings
+  carry a `routed_severity` high-water mark. A re-scan re-routes a finding only
+  when a new keyword rule raises its severity above what was last dispatched, so
+  escalations alert, unchanged findings stay quiet, and adding a route doesn't
+  back-blast history. The stored severity/category/score refresh on escalation.
 
-Residual (documented follow-ups): **pulse/compliance auto-routes only fire on
-insert-novelty** — an item whose severity is later raised by a new keyword rule
-isn't re-routed; fixing it well needs a "max severity dispatched" column rather
-than coupling routing to insert. Connect-time IP pinning (full DNS-rebind
-defense) and per-org timezone for trend bucketing also remain.
+Residual (documented follow-ups): connect-time IP pinning (full DNS-rebind
+defense) and per-org timezone for trend bucketing remain.
 
 ## Open decisions (need product input)
 

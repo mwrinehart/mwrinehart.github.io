@@ -50,6 +50,7 @@ export async function migrateCompliance(client: PoolClient): Promise<void> {
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS mapped_policies TEXT;
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS analyzed_at BIGINT;
     ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS score INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE compliance_findings ADD COLUMN IF NOT EXISTS routed_severity TEXT;
 
     CREATE TABLE IF NOT EXISTS compliance_keywords (
       id TEXT PRIMARY KEY,

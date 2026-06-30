@@ -57,6 +57,9 @@ export const complianceFindings = pgTable("compliance_findings", {
   analyzedAt: bigint("analyzed_at", { mode: "number" }),
   // Composite relevance score (0–100) at scan time; findings sort by this.
   score: integer("score").notNull().default(0),
+  // Highest severity already dispatched to auto-routes for this finding, so a
+  // re-scan re-routes only when a new keyword rule raised the severity.
+  routedSeverity: text("routed_severity"),
 });
 
 // Per-tenant keyword rules that augment the built-in classifier.

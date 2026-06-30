@@ -100,6 +100,7 @@ export async function migrateBehavior(client: PoolClient): Promise<void> {
       published_at BIGINT,
       scanned_at BIGINT NOT NULL
     );
+    ALTER TABLE pulse_findings ADD COLUMN IF NOT EXISTS routed_severity TEXT;
     CREATE INDEX IF NOT EXISTS idx_pulse_findings_org ON pulse_findings(org_id);
     -- Dedupe findings by link within an org.
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_findings_link ON pulse_findings(org_id, link);

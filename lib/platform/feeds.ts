@@ -83,6 +83,13 @@ export function severityAtLeast(value: Severity, min: Severity): boolean {
   return SEVERITY_RANK[value] >= SEVERITY_RANK[min];
 }
 
+// Numeric rank for ordering/high-water-mark comparisons. An unknown/null value
+// (e.g. a finding that has never been routed) ranks below "low" so any real
+// severity counts as an escalation past it.
+export function severityRank(value: Severity | null | undefined): number {
+  return value && value in SEVERITY_RANK ? SEVERITY_RANK[value] : -1;
+}
+
 // SSRF guard for user-supplied feed/connector URLs, shared by every module that
 // fetches a tenant-provided URL server-side (Behavior Pulse, Compliance feeds and
 // connectors). It resolves the host via DNS and rejects if ANY resolved address

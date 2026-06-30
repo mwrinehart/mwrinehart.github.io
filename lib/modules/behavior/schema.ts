@@ -99,6 +99,10 @@ export const pulseFindings = pgTable("pulse_findings", {
   keywords: text("keywords"),
   publishedAt: bigint("published_at", { mode: "number" }),
   scannedAt: bigint("scanned_at", { mode: "number" }).notNull(),
+  // Highest severity already dispatched to auto-routes for this finding. Lets a
+  // re-scan re-route a finding whose severity a new keyword rule raised, without
+  // re-alerting unchanged findings.
+  routedSeverity: text("routed_severity"),
 });
 
 // Org groups/teams (synced from external sources or created manually).

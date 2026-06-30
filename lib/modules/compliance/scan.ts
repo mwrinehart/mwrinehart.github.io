@@ -6,7 +6,7 @@
 import { randomUUID } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, type FeedItem, type KeywordRule, type Severity } from "@/lib/platform/feeds";
+import { assertSafeFeedUrl, classifyItem, scanFeed, severityAtLeast, severityRank, type FeedItem, type KeywordRule, type Severity } from "@/lib/platform/feeds";
 import { notify } from "@/lib/platform/notify";
 import { buildPreferenceModel, scoreFinding } from "./scoring";
 import { connectorLabel, fetchConnectorItems, listEnabledConnectors, markConnectorScanned } from "./connectors";
@@ -171,9 +171,11 @@ type AutoRoute = Awaited<ReturnType<typeof listAutoRoutes>>[number];
 // storm. `budget` is shared across the whole scan run.
 const MAX_ALERTS_PER_SCAN = 25;
 
-async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: AlertFinding, budget: { remaining: number }): Promise<void> {
+// Returns false if the alert budget ran out before all routes were considered,
+// so the caller won't record the finding as fully routed (it retries next scan).
+async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: AlertFinding, budget: { remaining: number }): Promise<boolean> {
   for (const route of routes) {
-    if (budget.remaining <= 0) return;
+    if (budget.remaining <= 0) return false;
     if (!severityAtLeast(finding.severity, route.severityMin as Severity)) continue;
     if (route.categories) {
       const cats = route.categories.split(",").map((c) => c.trim().toLowerCase());
@@ -196,6 +198,7 @@ async function dispatchAutoRoutes(routes: AutoRoute[], orgId: string, finding: A
         .where(eq(complianceAutoRoutes.id, route.id));
     }
   }
+  return true;
 }
 
 // ─── findings + scan ──────────────────────────────────────────────────────────
@@ -249,6 +252,8 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
         model,
         now,
       );
+      const category = c.categories[0] ?? null;
+      const alertFinding: AlertFinding = { title: item.title, link: item.link, summary: item.summary, severity: c.severity, category };
       const inserted = await db
         .insert(complianceFindings)
         .values({
@@ -260,7 +265,7 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
           summary: item.summary,
           link: item.link,
           severity: c.severity,
-          category: c.categories[0] ?? null,
+          category,
           keywords: c.matched.join(", ") || null,
           publishedAt,
           scannedAt: now,
@@ -274,13 +279,27 @@ export async function scanOrgComplianceFeeds(orgId: string): Promise<ScanResult>
           const id = customByTerm.get(term.toLowerCase());
           if (id) matchTally.set(id, (matchTally.get(id) ?? 0) + 1);
         }
-        await dispatchAutoRoutes(routes, orgId, {
-          title: item.title,
-          link: item.link,
-          summary: item.summary,
-          severity: c.severity,
-          category: c.categories[0] ?? null,
-        }, alertBudget);
+        const full = await dispatchAutoRoutes(routes, orgId, alertFinding, alertBudget);
+        if (full) await db.update(complianceFindings).set({ routedSeverity: c.severity }).where(eq(complianceFindings.id, inserted[0].id));
+      } else if (routes.length) {
+        // Already-stored finding (deduped by link): re-route only when a keyword
+        // rule has raised its severity past the highest we've dispatched. Refresh
+        // the stored severity/category/score to match the current classification.
+        const existing = (
+          await db
+            .select({ id: complianceFindings.id, routedSeverity: complianceFindings.routedSeverity })
+            .from(complianceFindings)
+            .where(and(eq(complianceFindings.orgId, orgId), eq(complianceFindings.link, item.link)))
+        )[0];
+        if (existing && severityRank(c.severity) > severityRank(existing.routedSeverity as Severity | null)) {
+          const full = await dispatchAutoRoutes(routes, orgId, alertFinding, alertBudget);
+          if (full) {
+            await db
+              .update(complianceFindings)
+              .set({ severity: c.severity, category, keywords: c.matched.join(", ") || null, score, routedSeverity: c.severity })
+              .where(eq(complianceFindings.id, existing.id));
+          }
+        }
       }
     }
   };
