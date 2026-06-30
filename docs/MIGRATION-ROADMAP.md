@@ -118,6 +118,23 @@ approvals, personas/OSINT, audit log, and compliance dashboard. Migrate its
 Prisma/SQLite models to Drizzle/Postgres. **Commercial product** — Mirage's
 gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 
+**Delivered (this increment):** module is live on the shared spine —
+
+- ✅ **Campaign lifecycle + mission control** — create campaigns; status state
+  machine (draft/active/paused/completed) behind a **launch policy gate** (can't
+  activate without an approved launch approval); autonomy modes (manual/review/
+  auto).
+- ✅ **AI blueprint** — expand an objective into a campaign plan via the shared
+  Anthropic client.
+- ✅ **Personas** — per-campaign personas with draft→warming→ready states.
+- ✅ **Approval workflow** — request launch/expansion/content approvals (with risk
+  score); admins decide on the Approvals queue; requests notify the org channel.
+- ✅ **Immutable audit log** — every action writes an actor-aware entry; per-campaign
+  and org-wide views.
+
+**Remaining:** OSINT target workbench, content-job generation tied to autonomy
+mode, and a compliance/jurisdiction dashboard.
+
 ## Cross-cutting platform follow-ups
 
 These benefit every module and aren't owned by one:

@@ -128,3 +128,4 @@ export type OrgSettingsRow = typeof orgSettings.$inferSelect;
 // Each ported module appends its tables here.
 export * from "@/lib/modules/behavior/schema";
 export * from "@/lib/modules/compliance/schema";
+export * from "@/lib/modules/campaigns/schema";

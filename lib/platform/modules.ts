@@ -57,7 +57,7 @@ export const MODULES: ModuleDef[] = [
     icon: "🎭",
     href: "/campaigns",
     sourceApp: "Mirage",
-    status: "planned",
+    status: "live",
   },
 ];
 
