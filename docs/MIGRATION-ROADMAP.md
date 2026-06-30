@@ -165,8 +165,14 @@ These benefit every module and aren't owned by one:
 - **Object storage** — Make notes media-as-data-URL tech debt; add S3/R2.
 - **Email transport** — wire nodemailer into the unified notifier (currently
   Slack/Teams send; email is logged + skipped).
-- **Tests + CI** — none of the four source apps had tests. Add Vitest + a CI
-  pipeline as parity work; it's the top handoff recommendation across all four.
+- ✅ **Tests + CI** — Vitest is wired (`npm test`) with a first suite over the
+  highest-risk pure logic — feed classifier + severity ranking, AES-256-GCM
+  secret round-trip/tamper, the Studio `coerceBlock` repair gate, HTML-export
+  escaping + image-scheme allowlist, the campaign autonomy gate, composite
+  scoring, password hashing, and the cron authorizer. GitHub Actions
+  (`.github/workflows/ci.yml`) runs typecheck → tests → build on every push/PR.
+  Next: DB-backed integration tests (tenant isolation, the upsert/CAS races)
+  against a throwaway Postgres service in CI.
 - **Invites + member management UI** — schema exists; build the admin console.
 
 ## Resolved decisions
