@@ -95,6 +95,7 @@ export const lmsAssignments = pgTable("lms_assignments", {
   score: integer("score"),
   litmosResponse: text("litmos_response"),
   notes: text("notes"),
+  lastPolledAt: bigint("last_polled_at", { mode: "number" }), // completion-poll fairness cursor
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
@@ -203,6 +204,7 @@ export const lmsSettings = pgTable("lms_settings", {
   reminderDays: text("reminder_days"), // JSON number[] (default [14,7,3,1])
   channels: text("channels"), // JSON NotifyChannelId[] — admin channels for LMS notices
   notifyLearners: boolean("notify_learners").notNull().default(true), // email learners directly
+  adminEmail: text("admin_email"), // recipient for the admin "email" channel (email has no org-default target)
   featuredCourseId: text("featured_course_id"), // litmos id pinned to the library hero
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });

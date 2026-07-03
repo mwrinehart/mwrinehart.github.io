@@ -54,7 +54,7 @@ function validateRuleInput(trigger: RuleTrigger, actions: RuleAction[]): RuleAct
 export async function createRule(
   orgId: string,
   createdBy: string,
-  input: { name: string; description?: string; trigger: RuleTrigger; conditions: RuleConditions; actions: RuleAction[] },
+  input: { name: string; description?: string; trigger: RuleTrigger; conditions: RuleConditions; actions: RuleAction[]; enabled?: boolean },
 ): Promise<string> {
   const actions = validateRuleInput(input.trigger, input.actions);
   const id = randomUUID();
@@ -67,7 +67,7 @@ export async function createRule(
     trigger: input.trigger,
     conditions: JSON.stringify(input.conditions),
     actions: JSON.stringify(actions),
-    enabled: true,
+    enabled: input.enabled ?? true,
     createdBy,
     createdAt: now,
     updatedAt: now,

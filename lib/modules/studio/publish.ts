@@ -5,7 +5,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
-import { createLitmosCourse, getLitmosCreds, updateLitmosCourse } from "@/lib/platform/litmos";
+import { createLitmosCourse, getLitmosCourse, getLitmosCreds, updateLitmosCourse } from "@/lib/platform/litmos";
 import { projects } from "./schema";
 import { getProject } from "./projects";
 
@@ -22,8 +22,11 @@ export async function publishProjectToLitmos(orgId: string, projectId: string): 
       code: `studio-${projectId.slice(0, 8)}`,
       active: true,
     };
+    // A linked course can vanish server-side (admins delete courses in Litmos);
+    // recreate rather than PUTting a ghost forever.
+    const existing = project.litmosCourseId ? await getLitmosCourse(creds, project.litmosCourseId) : null;
     let courseId: string;
-    if (project.litmosCourseId) {
+    if (project.litmosCourseId && existing) {
       await updateLitmosCourse(creds, project.litmosCourseId, shell);
       courseId = project.litmosCourseId;
     } else {

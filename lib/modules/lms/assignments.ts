@@ -4,10 +4,10 @@
 // and notices are fired by callers, never from here.
 
 import { randomUUID } from "crypto";
-import { and, desc, eq, ilike, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, or, type SQL } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { assignUserCourses, findLitmosUserByEmail, getLitmosCreds } from "@/lib/platform/litmos";
-import { lmsAssignments, lmsCourses, lmsLearners, lmsTeamMembers, type LmsAssignmentRow } from "./schema";
+import { lmsAssignments, lmsCourses, lmsLearners, lmsReminderLog, lmsTeamMembers, type LmsAssignmentRow } from "./schema";
 import { OPEN_ASSIGNMENT_STATUSES } from "./types";
 
 // ─── reads ────────────────────────────────────────────────────────────────────
@@ -163,6 +163,11 @@ export async function setLmsDueDate(orgId: string, id: string, dueDate: number |
     .update(lmsAssignments)
     .set(patch)
     .where(and(eq(lmsAssignments.orgId, orgId), eq(lmsAssignments.id, id)));
+  // A changed due date starts a new reminder cycle: clear the consumed ledger
+  // rows so the new deadline gets its own due-soon buckets and overdue notice.
+  if (dueDate !== row.dueDate) {
+    await db.delete(lmsReminderLog).where(and(eq(lmsReminderLog.orgId, orgId), eq(lmsReminderLog.assignmentId, id)));
+  }
 }
 
 // ─── team assign ──────────────────────────────────────────────────────────────
@@ -199,9 +204,16 @@ export async function assignCourseToTeam(
 
 // ─── completion ───────────────────────────────────────────────────────────────
 
+// Litmos keeps a user's course result across re-enrollments, so a completion
+// that predates the assignment's activation is last cycle's result, not this
+// one's — accepting it would instantly "complete" every re-assignment (and let
+// compliance auto-reassign self-complete forever). Small grace for clock skew.
+const COMPLETION_SKEW_MS = 5 * 60 * 1000;
+
 // Mark the open assignment for a course completed, matching by Litmos user id
-// first, then lowercased email. Returns the updated row (so callers can fire
-// events/notices) or null when nothing matched.
+// first, then lowercased email — newest assignment first, live (open) rows only,
+// so a stale failed row can't swallow the completion. Returns the updated row
+// (so callers can fire events/notices) or null when nothing matched.
 export async function completeLmsAssignment(
   orgId: string,
   match: { courseId: string; litmosUserId?: string | null; email?: string | null },
@@ -215,17 +227,21 @@ export async function completeLmsAssignment(
         eq(lmsAssignments.orgId, orgId),
         eq(lmsAssignments.courseLitmosId, match.courseId),
         isNull(lmsAssignments.completedAt),
-        ne(lmsAssignments.status, "cancelled"),
+        inArray(lmsAssignments.status, OPEN_ASSIGNMENT_STATUSES),
       ),
-    );
+    )
+    .orderBy(desc(lmsAssignments.assignedAt));
   const email = match.email?.trim().toLowerCase();
   const hit =
     (match.litmosUserId ? rows.find((r) => r.litmosUserId === match.litmosUserId) : undefined) ??
     (email ? rows.find((r) => r.learnerEmail === email) : undefined);
   if (!hit) return null;
+  const completedAt = completion.completedAt ?? Date.now();
+  if (completedAt < (hit.activatedAt ?? hit.assignedAt) - COMPLETION_SKEW_MS) return null;
+  const score = completion.score === null || completion.score === undefined || !Number.isFinite(completion.score) ? null : Math.round(completion.score);
   const [updated] = await db
     .update(lmsAssignments)
-    .set({ status: "completed", completedAt: completion.completedAt ?? Date.now(), score: completion.score ?? null, updatedAt: Date.now() })
+    .set({ status: "completed", completedAt, score, updatedAt: Date.now() })
     .where(and(eq(lmsAssignments.orgId, orgId), eq(lmsAssignments.id, hit.id)))
     .returning();
   return updated ?? null;

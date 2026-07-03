@@ -24,6 +24,22 @@ export interface RuleBuilderOption {
   name: string;
 }
 
+// Trigger-specific conditions stay in state (and serialize) even after their
+// fields are hidden by a trigger switch, producing rules that can never fire —
+// drop everything the new trigger's evaluator won't see.
+function pruneConditions(c: RuleConditions, trigger: RuleTrigger): RuleConditions {
+  const next: RuleConditions = { teamIds: c.teamIds, emailDomains: c.emailDomains };
+  if (trigger === "assignment.completed" || trigger === "assignment.due_soon" || trigger === "assignment.overdue") next.courseIds = c.courseIds;
+  if (trigger === "assignment.due_soon") next.maxDaysLeft = c.maxDaysLeft;
+  if (trigger === "assignment.overdue") next.minDaysOverdue = c.minDaysOverdue;
+  if (trigger === "compliance.expiring") next.maxDaysToExpiry = c.maxDaysToExpiry;
+  if (trigger === "assignment.completed") {
+    next.minScore = c.minScore;
+    next.maxScore = c.maxScore;
+  }
+  return next;
+}
+
 export function RuleBuilder({
   courses,
   teams,
@@ -70,7 +86,16 @@ export function RuleBuilder({
       <div>
         <label className="block md:w-1/2">
           <span className="text-xs text-jericho-muted">When (trigger)</span>
-          <select name="trigger" value={trigger} onChange={(e) => setTrigger(e.target.value as RuleTrigger)} className={`mt-1 ${selectCls}`}>
+          <select
+            name="trigger"
+            value={trigger}
+            onChange={(e) => {
+              const next = e.target.value as RuleTrigger;
+              setTrigger(next);
+              setConditions((c) => pruneConditions(c, next));
+            }}
+            className={`mt-1 ${selectCls}`}
+          >
             {RULE_TRIGGERS.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}

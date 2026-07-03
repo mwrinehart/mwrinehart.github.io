@@ -87,6 +87,7 @@ export async function migrateLms(client: PoolClient): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_lms_assignments_org ON lms_assignments(org_id);
     CREATE INDEX IF NOT EXISTS idx_lms_assignments_org_status ON lms_assignments(org_id, status);
     CREATE INDEX IF NOT EXISTS idx_lms_assignments_status_due ON lms_assignments(status, due_date);
+    ALTER TABLE lms_assignments ADD COLUMN IF NOT EXISTS last_polled_at BIGINT;
 
     CREATE TABLE IF NOT EXISTS lms_compliance_profiles (
       id TEXT PRIMARY KEY,
@@ -175,9 +176,11 @@ export async function migrateLms(client: PoolClient): Promise<void> {
       reminder_days TEXT,
       channels TEXT,
       notify_learners BOOLEAN NOT NULL DEFAULT TRUE,
+      admin_email TEXT,
       featured_course_id TEXT,
       updated_at BIGINT NOT NULL
     );
+    ALTER TABLE lms_settings ADD COLUMN IF NOT EXISTS admin_email TEXT;
 
     CREATE TABLE IF NOT EXISTS lms_sync_runs (
       id TEXT PRIMARY KEY,

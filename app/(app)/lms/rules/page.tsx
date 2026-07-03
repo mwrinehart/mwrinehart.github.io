@@ -104,6 +104,7 @@ export default async function LmsRulesPage({ searchParams }: { searchParams: Pro
         trigger: String(formData.get("trigger") || "") as RuleTrigger,
         conditions: parseConditionsField(String(formData.get("conditions") || "")),
         actions: parseActionsField(String(formData.get("actions") || "")),
+        enabled: formData.get("enabled") === "1",
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -238,6 +239,7 @@ export default async function LmsRulesPage({ searchParams }: { searchParams: Pro
               <form action={updateRuleAction}>
                 <input type="hidden" name="id" value={editing.id} />
                 <RuleBuilder
+                  key={editing.id}
                   courses={courses}
                   teams={teams}
                   initial={{
@@ -256,7 +258,7 @@ export default async function LmsRulesPage({ searchParams }: { searchParams: Pro
             <>
               <h3 className="font-medium mb-3">Create a rule</h3>
               <form action={createRuleAction}>
-                <RuleBuilder courses={courses} teams={teams} submitLabel="Create rule" />
+                <RuleBuilder key="new" courses={courses} teams={teams} submitLabel="Create rule" />
               </form>
             </>
           )}

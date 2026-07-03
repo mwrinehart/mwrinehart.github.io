@@ -107,10 +107,12 @@ async function sendTeams(secrets: OrgSecrets, target: string | undefined, input:
   return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
 
-// Google Chat renders *bold* like Slack; the simple-text webhook payload is
-// { text }. Exported for tests.
+// Google Chat renders *bold* like Slack — and the same <URL|link text> markup,
+// so subject/body get the same escaping as sendSlack (a Litmos learner or
+// course name is attacker-influenced content). Exported for tests.
 export function buildGoogleChatPayload(subject: string | undefined, body: string): { text: string } {
-  return { text: subject ? `*${subject}*\n${body}` : body };
+  const esc = slackEscape;
+  return { text: subject ? `*${esc(subject)}*\n${esc(body)}` : esc(body) };
 }
 
 async function sendGoogleChat(secrets: OrgSecrets, target: string | undefined, input: NotifyInput): Promise<NotifyResult> {

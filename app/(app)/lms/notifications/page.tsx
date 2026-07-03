@@ -30,17 +30,18 @@ const CHANNEL_OPTIONS: Array<{ id: NotifyChannelId; label: string }> = [
 
 // Base vars are shared; each key adds its own (mirrors what workers/rules pass).
 const TEMPLATE_VARS: Record<TemplateKey, string> = {
-  assignment_created: "learner, learnerEmail, course, dueDate, dueClause",
-  due_soon: "learner, learnerEmail, course, dueDate, dueClause, daysLeft",
-  overdue: "learner, learnerEmail, course, dueDate, dueClause, daysOverdue",
-  completed: "learner, learnerEmail, course, dueDate, dueClause, score, scoreClause",
-  compliance_expiring: "learner, learnerEmail, course, dueDate, dueClause, expiresDate, daysToExpiry",
+  assignment_created: "learner, learnerEmail, course, courseId, dueDate, dueClause",
+  due_soon: "learner, learnerEmail, course, courseId, dueDate, dueClause, daysLeft",
+  overdue: "learner, learnerEmail, course, courseId, dueDate, dueClause, daysOverdue",
+  completed: "learner, learnerEmail, course, courseId, score, scoreClause",
+  compliance_expiring: "learner, learnerEmail, course, courseId, expiresDate, daysToExpiry, dueDate, dueClause",
 };
 
 const SAMPLE_VARS = {
   learner: "Avery Chen",
   learnerEmail: "avery@company.com",
   course: "Security Awareness Basics",
+  courseId: "LIT-1042",
   dueDate: "Jul 17, 2026",
   dueClause: ", due Jul 17, 2026",
   daysLeft: 3,
@@ -93,10 +94,12 @@ export default async function LmsNotificationsPage() {
       .getAll("channels")
       .map(String)
       .filter((c): c is NotifyChannelId => NOTIFY_CHANNELS.includes(c as NotifyChannelId));
+    const adminEmail = String(formData.get("adminEmail") || "").trim();
     await updateLmsSettings(orgId, {
       reminderDays: days, // empty array reads back as the default cadence
       channels: picked,
       notifyLearners: formData.get("notifyLearners") === "1",
+      adminEmail: adminEmail || null,
     });
     revalidatePath("/lms/notifications");
   }
@@ -152,6 +155,11 @@ export default async function LmsNotificationsPage() {
               ))}
             </div>
           </div>
+          <label className="block max-w-sm">
+            <span className="text-xs text-jericho-muted">Admin notification email</span>
+            <input name="adminEmail" type="email" defaultValue={settings.adminEmail ?? ""} placeholder="training-admins@company.com" className={`mt-1 ${inputCls}`} />
+            <p className="text-xs text-jericho-muted mt-1">Admin-channel Email sends go here — leave blank to disable email to admins.</p>
+          </label>
           <label className="flex items-center gap-1.5 text-sm">
             <input type="checkbox" name="notifyLearners" value="1" defaultChecked={settings.notifyLearners} /> Also email the learner
             directly

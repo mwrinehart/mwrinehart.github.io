@@ -10,4 +10,10 @@ describe("buildGoogleChatPayload", () => {
     expect(buildGoogleChatPayload(undefined, "Complete it today.")).toEqual({ text: "Complete it today." });
     expect(buildGoogleChatPayload("", "Complete it today.")).toEqual({ text: "Complete it today." });
   });
+
+  it("escapes Google Chat control characters so a hostile course/learner name can't inject a link", () => {
+    expect(buildGoogleChatPayload("A & B", "<https://evil.example|Click here> completed")).toEqual({
+      text: "*A &amp; B*\n&lt;https://evil.example|Click here&gt; completed",
+    });
+  });
 });

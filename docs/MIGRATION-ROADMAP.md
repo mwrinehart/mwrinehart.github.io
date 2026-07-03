@@ -324,6 +324,54 @@ holds everywhere. Fixes applied:
 Residual (documented follow-ups): connect-time IP pinning (full DNS-rebind
 defense) and per-org timezone for trend bucketing remain.
 
+### Fourth review pass (LMS feature) — resolved
+
+A 30-finding adversarial pass over the LMS build (6 dimension reviewers, every
+finding independently double-verified); all applied:
+
+- ✅ **Stale-completion guard** — Litmos keeps a user's course result across
+  re-enrollments, so `completeLmsAssignment` now rejects completions older than
+  the assignment's activation (5-min skew grace). Kills both the compliance
+  auto-reassign self-complete (permanent hidden non-compliance) and the
+  refresher-rule infinite loop; matching is also restricted to OPEN rows,
+  newest first, so failed rows can't swallow a webhook.
+- ✅ **Reminder/rule cycles** — `setLmsDueDate` clears the assignment's reminder
+  ledger on a due-date change; due_soon/overdue events carry the due date as
+  their dedupe cycle, so a rescheduled assignment reminds/fires again.
+- ✅ **State-driven effects** — overdue + compliance notices/events/auto-reassign
+  now derive from row state (ledger-gated once per cycle, events re-emitted per
+  tick) instead of recompute transitions: threshold rules ("7+ days overdue",
+  "≤3 days to expiry") fire at the first matching tick, and a manual
+  "Recompute now" can no longer swallow them. New-profile back-blast is bounded
+  by a per-org/tick compliance-effects cap.
+- ✅ **Rule dedupe re-occurrence** — learner.created keys on the Litmos user id
+  (rehires re-fire onboarding) and team_joined on the membership row id
+  (leave + rejoin re-fires); events carry the learner's full team list so
+  team-scoped conditions work on every trigger.
+- ✅ **Sync self-defense** — unrecognized 200 bodies throw instead of reading as
+  empty; deactivation diffs are skipped on truncated (page-cap) or
+  suspiciously-empty fetches; deleted Litmos teams are pruned (404 = gone, not a
+  recurring "partial"); a per-org time budget + consecutive-failure fast-fail
+  stop one hung tenant from stalling the shared job; `runJob` gained an
+  overlapping-run guard.
+- ✅ **Litmos write safety** — course updates GET-merge-PUT (no more wiping
+  ForSale/pricing), and Studio republish recreates the course when it was
+  deleted server-side instead of PUTting a ghost forever.
+- ✅ **Fairness + scale** — completion polling rotates by `last_polled_at`;
+  schedule.daily pages the full learner directory (keyset) instead of a silent
+  1000-row cap.
+- ✅ **Notifications** — Google Chat payloads are escaped like Slack's
+  (link-injection via hostile course/learner names); the admin "email" channel
+  gained a configurable recipient (`lms_settings.admin_email`) instead of
+  silently skipping; template variables now match what call sites supply;
+  deactivated learners stop receiving direct reminder emails.
+- ✅ **UI correctness** — rule editor remounts per rule (no state bleed between
+  edits), the Enabled checkbox is honored on create, trigger switches prune
+  inapplicable conditions, the teams tree renders recursively (cycle-guarded),
+  scheduled-for times are documented UTC, publish-to-Litmos surfaces
+  its errors, clearing "warn days" restores the default instead of 0, and
+  decimal Litmos scores are rounded before hitting INTEGER columns.
+
 ## Open decisions (need product input)
 
 1. **Module entitlements / packaging** — are modules sold separately (plan-gated)

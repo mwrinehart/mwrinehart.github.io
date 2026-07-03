@@ -10,8 +10,19 @@ import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 
 const inputCls = "w-full rounded-lg border border-jericho-border bg-jericho-bg px-3 py-2 text-sm outline-none focus:border-jericho-accent";
 
-export default async function CourseEditorPage({ params }: { params: Promise<{ id: string }> }) {
+function first(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
+}
+
+export default async function CourseEditorPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const err = first((await searchParams).error);
   const { orgId } = await requireTenant();
   const project = await getProject(orgId, id);
   if (!project) notFound();
@@ -76,7 +87,8 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
   async function publishToLitmosAction() {
     "use server";
     const { orgId } = await requireTenant("member");
-    await publishProjectToLitmos(orgId, id);
+    const res = await publishProjectToLitmos(orgId, id);
+    if (!res.ok) redirect(`/studio/${id}?error=${encodeURIComponent(res.error ?? "Litmos publish failed")}`);
     revalidatePath(`/studio/${id}`);
   }
   async function deleteAction() {
@@ -110,6 +122,8 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
           </div>
         }
       />
+
+      {err && <p className="text-xs text-jericho-bad mb-4">{err}</p>}
 
       {project.litmosStatus === "published" && (
         <p className="text-xs text-jericho-good mb-4">

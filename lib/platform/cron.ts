@@ -52,9 +52,19 @@ export interface CronRunResult {
   ms: number;
 }
 
+// In-process overlap guard (the app runs as a single container): an external
+// pinger firing faster than a slow job finishes must not stack concurrent
+// executions of the same job.
+const runningJobs = new Set<string>();
+
 export async function runJob(id: string): Promise<CronRunResult> {
   const job = getJob(id);
   if (!job) throw new Error(`Unknown job: ${id}`);
+
+  if (runningJobs.has(id)) {
+    return { job: id, status: "success", summary: { skipped: "already-running" }, ms: 0 };
+  }
+  runningJobs.add(id);
 
   const runId = randomUUID();
   const started = Date.now();
@@ -69,6 +79,8 @@ export async function runJob(id: string): Promise<CronRunResult> {
   } catch (e) {
     status = "failed";
     error = e instanceof Error ? e.message : String(e);
+  } finally {
+    runningJobs.delete(id);
   }
 
   const finished = Date.now();

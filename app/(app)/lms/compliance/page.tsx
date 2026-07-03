@@ -26,7 +26,10 @@ function fmtDate(ts: number | null | undefined): string {
 }
 
 function num(v: FormDataEntryValue | null, fallback: number): number {
-  const n = Number(String(v ?? ""));
+  // Number("") === 0, so a cleared field must fall back rather than save 0.
+  const s = String(v ?? "").trim();
+  if (!s) return fallback;
+  const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
 }
 

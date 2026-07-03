@@ -5,7 +5,7 @@
 // assignments stay pending/failed gracefully.
 
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
-import { and, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, ne } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import { findLitmosUserByEmail, getLitmosCreds, litmosFetch } from "@/lib/platform/litmos";
 import { getOrgSecret } from "@/lib/platform/secrets";
@@ -143,9 +143,11 @@ export async function pollCompletions(): Promise<{ checked: number; completed: n
       if (!res.ok) continue;
       const course = (await res.json()) as { CompletedDate?: string; Score?: number };
       if (course.CompletedDate) {
+        // Litmos scores can be decimal (averaged modules); the column is INTEGER.
+        const score = typeof course.Score === "number" && Number.isFinite(course.Score) ? Math.round(course.Score) : null;
         await db
           .update(litmosAssignments)
-          .set({ status: "completed", completedAt: new Date(course.CompletedDate).getTime(), score: course.Score ?? null })
+          .set({ status: "completed", completedAt: new Date(course.CompletedDate).getTime(), score })
           .where(eq(litmosAssignments.id, row.id));
         completed++;
       }
@@ -182,18 +184,31 @@ export interface CompletionPayload {
 export async function handleCompletion(orgId: string, payload: CompletionPayload): Promise<boolean> {
   const courseId = payload.courseId;
   if (!courseId) return false;
+  // Cancelled rows stay cancelled, and an exact Litmos-user-id match beats an
+  // email match (an email-only hit earlier in the list must not swallow the
+  // completion meant for another row).
   const rows = await db
     .select()
     .from(litmosAssignments)
-    .where(and(eq(litmosAssignments.orgId, orgId), eq(litmosAssignments.litmosCourseId, courseId), isNull(litmosAssignments.completedAt)));
-  const match = rows.find(
-    (r) => (payload.userId && r.litmosUserId === payload.userId) || (payload.email && r.userEmail === payload.email.toLowerCase()),
-  );
+    .where(
+      and(
+        eq(litmosAssignments.orgId, orgId),
+        eq(litmosAssignments.litmosCourseId, courseId),
+        isNull(litmosAssignments.completedAt),
+        ne(litmosAssignments.status, "cancelled"),
+      ),
+    );
+  const email = payload.email?.toLowerCase();
+  const match =
+    (payload.userId ? rows.find((r) => r.litmosUserId === payload.userId) : undefined) ??
+    (email ? rows.find((r) => r.userEmail === email) : undefined);
   if (!match) return false;
   const when = payload.CompletedDate || payload.completedAt;
+  const rawScore = payload.Score ?? payload.score;
+  const score = typeof rawScore === "number" && Number.isFinite(rawScore) ? Math.round(rawScore) : null;
   await db
     .update(litmosAssignments)
-    .set({ status: "completed", completedAt: when ? new Date(when).getTime() : Date.now(), score: payload.Score ?? payload.score ?? null })
+    .set({ status: "completed", completedAt: when ? new Date(when).getTime() : Date.now(), score })
     .where(eq(litmosAssignments.id, match.id));
   return true;
 }

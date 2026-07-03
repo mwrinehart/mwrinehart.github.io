@@ -27,12 +27,13 @@ export async function getLmsSettings(orgId: string): Promise<LmsSettingsRow> {
 
 export async function updateLmsSettings(
   orgId: string,
-  patch: { reminderDays?: number[]; channels?: NotifyChannelId[]; notifyLearners?: boolean; featuredCourseId?: string | null },
+  patch: { reminderDays?: number[]; channels?: NotifyChannelId[]; notifyLearners?: boolean; adminEmail?: string | null; featuredCourseId?: string | null },
 ): Promise<void> {
   const set: Partial<typeof lmsSettings.$inferInsert> = { updatedAt: Date.now() };
   if (patch.reminderDays !== undefined) set.reminderDays = JSON.stringify(patch.reminderDays);
   if (patch.channels !== undefined) set.channels = JSON.stringify(patch.channels);
   if (patch.notifyLearners !== undefined) set.notifyLearners = patch.notifyLearners;
+  if (patch.adminEmail !== undefined) set.adminEmail = patch.adminEmail; // null clears
   if (patch.featuredCourseId !== undefined) set.featuredCourseId = patch.featuredCourseId; // null clears the hero pin
   await db
     .insert(lmsSettings)
@@ -109,7 +110,12 @@ export async function sendLmsNotice(
     const body = renderTemplate(override?.body ?? def.body, vars);
     const settings = await getLmsSettings(orgId);
     for (const channel of parseChannels(settings.channels)) {
-      await notify({ orgId, channel, subject, body, module: "lms" });
+      // Slack/Teams/Google Chat resolve an org-default target from secrets
+      // inside notify(); email has no such default — it needs the configured
+      // admin address or the send would only ever log "skipped".
+      const target = channel === "email" ? (settings.adminEmail ?? undefined) : undefined;
+      if (channel === "email" && !target) continue;
+      await notify({ orgId, channel, target, subject, body, module: "lms" });
     }
     if (settings.notifyLearners && opts?.learnerEmail) {
       await notify({ orgId, channel: "email", target: opts.learnerEmail, subject, body, module: "lms" });

@@ -67,17 +67,36 @@ const MAX_PAGES = 50;
 
 // Page through a Litmos collection endpoint (limit/start paging) until a short
 // page or the page cap. `path` may already carry query params.
-export async function litmosGetAll(creds: LitmosCreds, path: string): Promise<Record<string, unknown>[]> {
+//
+// `truncated` means the cap was hit with a still-full final page — the caller
+// got a PREFIX of the collection, not all of it. Sync uses this to skip its
+// "missing from Litmos" deactivation diff, which would otherwise deactivate
+// every record past the cap. A 200 response whose body is a non-empty object
+// with no recognized array key throws instead of silently reading as an empty
+// collection (an unrecognized envelope must degrade the step, not empty the
+// mirror).
+export async function litmosGetAllEx(creds: LitmosCreds, path: string): Promise<{ rows: Record<string, unknown>[]; truncated: boolean }> {
   const all: Record<string, unknown>[] = [];
-  for (let start = 0; start < PAGE_SIZE * MAX_PAGES; start += PAGE_SIZE) {
+  let truncated = false;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const start = page * PAGE_SIZE;
     const sep = path.includes("?") ? "&" : "?";
     const res = await litmosFetch(creds, `${path}${sep}limit=${PAGE_SIZE}&start=${start}`);
     if (!res.ok) throw new Error(`litmos GET ${path} ${res.status}`);
-    const rows = extractLitmosArray(await res.json());
+    const json = await res.json();
+    const rows = extractLitmosArray(json);
+    if (!rows.length && json && typeof json === "object" && !Array.isArray(json) && Object.keys(json as object).length) {
+      throw new Error(`litmos GET ${path}: unrecognized response shape (keys: ${Object.keys(json as object).slice(0, 5).join(",")})`);
+    }
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
+    if (page === MAX_PAGES - 1) truncated = true;
   }
-  return all;
+  return { rows: all, truncated };
+}
+
+export async function litmosGetAll(creds: LitmosCreds, path: string): Promise<Record<string, unknown>[]> {
+  return (await litmosGetAllEx(creds, path)).rows;
 }
 
 async function litmosBody(res: Response): Promise<string> {
@@ -213,16 +232,32 @@ export async function createLitmosCourse(creds: LitmosCreds, input: CreateLitmos
   return created;
 }
 
+export async function getLitmosCourse(creds: LitmosCreds, id: string): Promise<Record<string, unknown> | null> {
+  const res = await litmosFetch(creds, `/courses/${encodeURIComponent(id)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`litmos get course ${res.status}`);
+  return (await res.json()) as Record<string, unknown>;
+}
+
+// Litmos PUT replaces the whole course record, so merge the patch into the
+// fetched record — a from-scratch body would wipe fields we don't model
+// (ForSale, pricing, e-commerce copy). Minimal record only as a last resort.
 export async function updateLitmosCourse(creds: LitmosCreds, id: string, patch: CreateLitmosCourseInput): Promise<void> {
+  let record: Record<string, unknown>;
+  try {
+    record = (await getLitmosCourse(creds, id)) ?? { Id: id, ForSale: false };
+  } catch {
+    record = { Id: id, ForSale: false };
+  }
   const res = await litmosFetch(creds, `/courses/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify({
+      ...record,
       Id: id,
       Name: patch.name,
       Description: patch.description ?? "",
       Code: patch.code ?? "",
       Active: patch.active ?? true,
-      ForSale: false,
     }),
   });
   if (!res.ok) throw new Error(`litmos update course ${res.status}: ${await litmosBody(res)}`);

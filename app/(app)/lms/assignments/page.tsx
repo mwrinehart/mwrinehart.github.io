@@ -32,6 +32,14 @@ function parseDueDate(raw: string): number | null {
   return raw ? Date.parse(`${raw}T23:59:59.999Z`) : null;
 }
 
+// datetime-local has no timezone; the documented convention is UTC (matching
+// due dates). Values are "YYYY-MM-DDTHH:mm", occasionally with seconds.
+function parseScheduledFor(raw: string): number | undefined {
+  if (!raw) return undefined;
+  const ts = Date.parse(/:\d{2}:\d{2}$/.test(raw) ? `${raw}Z` : `${raw}:00Z`);
+  return Number.isNaN(ts) ? undefined : ts;
+}
+
 export default async function LmsAssignmentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const status = first(sp.status);
@@ -79,7 +87,7 @@ export default async function LmsAssignmentsPage({ searchParams }: { searchParam
         learnerName,
         courseLitmosId: courseId,
         courseName,
-        scheduledFor: rawScheduled ? new Date(rawScheduled).getTime() : undefined,
+        scheduledFor: parseScheduledFor(rawScheduled),
         dueDate: parseDueDate(rawDue) ?? undefined,
         assignedBy: userEmail ?? undefined,
       },
@@ -198,11 +206,11 @@ export default async function LmsAssignmentsPage({ searchParams }: { searchParam
                 <input name="dueDate" type="date" className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-xs text-jericho-muted">Schedule for</span>
+                <span className="text-xs text-jericho-muted">Schedule for (UTC)</span>
                 <input name="scheduledFor" type="datetime-local" className={`mt-1 ${inputCls}`} />
               </label>
             </div>
-            <p className="text-xs text-jericho-muted">Leave “schedule for” empty to assign immediately.</p>
+            <p className="text-xs text-jericho-muted">Leave “schedule for” empty to assign immediately; the time is interpreted as UTC.</p>
             <button className="rounded-lg bg-jericho-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90" type="submit">
               Assign
             </button>

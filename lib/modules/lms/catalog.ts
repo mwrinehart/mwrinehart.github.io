@@ -156,8 +156,13 @@ export async function createLearner(orgId: string, input: { email: string; first
       syncedAt: now,
     });
     // Explicit admin action → fire regardless of sync history (unlike syncLmsOrg's
-    // first-import guard).
-    await fireLmsEvent(orgId, { trigger: "learner.created", learner: { email, name: fullName, litmosUserId: created.Id, teamIds: [] } });
+    // first-import guard). cycleKey = the Litmos user id so a rehire (same email,
+    // new Litmos account) re-fires onboarding rules.
+    await fireLmsEvent(orgId, {
+      trigger: "learner.created",
+      learner: { email, name: fullName, litmosUserId: created.Id, teamIds: [] },
+      cycleKey: created.Id,
+    });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
@@ -230,21 +235,29 @@ export async function addLearnerToTeam(orgId: string, teamLitmosId: string, lear
   try {
     const creds = await requireCreds(orgId);
     await addLitmosTeamUsers(creds, teamLitmosId, [learnerLitmosId]);
-    await db
+    const [inserted] = await db
       .insert(lmsTeamMembers)
       .values({ id: randomUUID(), orgId, teamLitmosId, learnerLitmosId, syncedAt: Date.now() })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: lmsTeamMembers.id });
     const learner = (
       await db
         .select({ email: lmsLearners.email, fullName: lmsLearners.fullName })
         .from(lmsLearners)
         .where(and(eq(lmsLearners.orgId, orgId), eq(lmsLearners.litmosId, learnerLitmosId)))
     )[0];
-    if (learner?.email) {
+    // Fire only on a NEW membership row; its id is the dedupe cycle, so leaving
+    // and rejoining the team later legitimately re-fires join rules. Conditions
+    // see the learner's full team list, not just the joined team.
+    if (inserted && learner?.email) {
+      const memberships = await db
+        .select({ teamLitmosId: lmsTeamMembers.teamLitmosId })
+        .from(lmsTeamMembers)
+        .where(and(eq(lmsTeamMembers.orgId, orgId), eq(lmsTeamMembers.learnerLitmosId, learnerLitmosId)));
       await fireLmsEvent(orgId, {
         trigger: "learner.team_joined",
-        learner: { email: learner.email, name: learner.fullName, litmosUserId: learnerLitmosId, teamIds: [teamLitmosId] },
-        cycleKey: teamLitmosId,
+        learner: { email: learner.email, name: learner.fullName, litmosUserId: learnerLitmosId, teamIds: memberships.map((m) => m.teamLitmosId) },
+        cycleKey: inserted.id,
       });
     }
     return { ok: true };

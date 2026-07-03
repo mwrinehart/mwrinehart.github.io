@@ -162,6 +162,22 @@ export default async function LmsTeamsPage({ searchParams }: { searchParams: Pro
     );
   }
 
+  // Recursive so grandchild teams render too; the visited set and depth cap
+  // guard against parent cycles in synced Litmos data.
+  function teamTree(team: LmsTeamRow, depth: number, visited: Set<string>) {
+    if (visited.has(team.litmosId) || depth >= 8) return null;
+    visited.add(team.litmosId);
+    const children = childrenOf(team);
+    return (
+      <div key={team.id}>
+        {teamCard(team)}
+        {children.length > 0 && (
+          <div className="border-l border-jericho-border pl-4 ml-4 mt-3 space-y-3">{children.map((c) => teamTree(c, depth + 1, visited))}</div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Teams" subtitle="Litmos teams, managed from here — membership and team-wide course assignment." />
@@ -205,17 +221,7 @@ export default async function LmsTeamsPage({ searchParams }: { searchParams: Pro
       {teams.length === 0 ? (
         <EmptyState title="No teams yet">Create one above, or run a sync from LMS settings to pull teams from Litmos.</EmptyState>
       ) : (
-        <div className="space-y-3">
-          {topLevel.map((team) => {
-            const children = childrenOf(team);
-            return (
-              <div key={team.id}>
-                {teamCard(team)}
-                {children.length > 0 && <div className="border-l border-jericho-border pl-4 ml-4 mt-3 space-y-3">{children.map((c) => teamCard(c))}</div>}
-              </div>
-            );
-          })}
-        </div>
+        <div className="space-y-3">{topLevel.map((team) => teamTree(team, 0, new Set()))}</div>
       )}
     </>
   );
