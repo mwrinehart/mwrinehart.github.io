@@ -9,11 +9,13 @@ single, multi-tenant platform with a shared spine and pluggable modules.
 | **Compliance** | Horizon Scanner | Regulatory & threat-feed scanning, AI summaries, policy mapping, alerting | Live |
 | **Studio** | Make (Content Studio) | eLearning authoring + AI course generation + HTML export (media gen provider-gated) | Live |
 | **Campaigns** | Mirage | Narrative campaign simulation: mission control, autonomy-gated content, approvals, audit | Live |
+| **LMS** | Litmos (SAP Litmos API) | Full Litmos admin surface: Netflix-style library, courses/learners/teams, assignments + due & compliance dates, tenant rules engine, cross-source reporting | Live |
 
 Instead of four apps each re-implementing auth, organizations, RBAC, secret
 storage, notifications, RSS scanning, and an AI client, the platform provides all
 of that **once** (`lib/platform/`) and each product becomes a module
-(`lib/modules/`, `app/(app)/<module>/`).
+(`lib/modules/`, `app/(app)/<module>/`) — the LMS being the one addition rather
+than a rebuild: a new admin surface over Litmos on the same spine.
 
 ## Stack
 
@@ -54,6 +56,7 @@ lib/
   platform/         the shared spine — db, auth, org/RBAC, secrets, notify, feeds, ai, module registry
   modules/
     behavior/       the CBM rebuild: schema, migrate, risk logic, demo seed
+    lms/            the Litmos admin surface: mirror sync, assignments, rules, compliance, reports
 components/         AppShell + shared UI primitives
 docs/               ARCHITECTURE, MIGRATION-ROADMAP, MODULE-CONVENTIONS
 ```

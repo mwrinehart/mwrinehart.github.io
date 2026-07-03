@@ -6,7 +6,9 @@ Four Jericho products — **Make** (Content Studio), **Mirage** (campaign
 simulation), **Horizon Scanner** (compliance radar), and **CBM-Next** (behavior
 management) — rebuilt as **one** multi-tenant application: a shared platform spine
 plus pluggable product modules. The user-selected approach is a *unified rebuild*
-(one codebase) rather than a monorepo of separate apps.
+(one codebase) rather than a monorepo of separate apps. A fifth module, **LMS**,
+is new rather than rebuilt — a full admin surface over SAP Litmos on the same
+spine.
 
 ## Why this shape
 
@@ -42,9 +44,10 @@ mostly translating domain logic, not rebuilding infrastructure.
 | Identity / sessions | `auth.ts` | Auth.js v5 (JWT sessions). Providers: OIDC (Jericho SSO), Google, email+password, dev login — all behind env switches. |
 | Tenancy & RBAC | `org.ts`, `orgs.ts` | `requireTenant(minRole?)` is the single authorization seam. Roles: owner > admin > member > viewer. |
 | Encrypted secrets | `secrets.ts` | Per-org AES-256-GCM blob in `orgs.encrypted_secrets` (ported from CBM's `orgSecrets.js`). |
-| Notifications | `notify.ts` | Unified Slack/Teams/email sender; every send logged to `notification_log`. |
+| Notifications | `notify.ts` | Unified Slack/Teams/Google Chat/email sender; every send logged to `notification_log`. |
 | Feed engine | `feeds.ts` | Shared RSS scan + keyword classifier (Horizon + CBM Pulse). |
 | AI | `ai.ts` | Dependency-free Anthropic Messages client; per-org key override. |
+| Litmos client | `litmos.ts` | Shared Litmos API client — org-keyed, used by Behavior, LMS, and Studio publish. |
 | Module registry | `modules.ts` | Client-safe source of truth for nav, status, and source-app provenance. |
 
 ## Tenancy model

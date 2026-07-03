@@ -154,6 +154,43 @@ gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 
 **Remaining:** OSINT target workbench and a compliance/jurisdiction dashboard.
 
+## Phase 5 — LMS (the Litmos admin surface)
+
+Not a rebuild of a Jericho app: a **new** module that puts a full admin surface
+over SAP Litmos so admins never log into Litmos directly.
+
+**Delivered (this increment):** module is live on the shared spine —
+
+- ✅ **Shared Litmos client** — `lib/platform/litmos.ts` (org-keyed creds, fetch,
+  pager, typed user/team/course/enrollment helpers); `behavior/litmos.ts`
+  refactored onto it.
+- ✅ **Per-org mirror sync** — users/teams/memberships/courses mirrored locally,
+  ledgered per run; the first sync suppresses `learner.created` events so
+  onboarding an existing tenant can't back-blast rules.
+- ✅ **Catalog / learner / team management via API** — create courses,
+  create/deactivate learners, teams + membership, all written to Litmos then
+  mirrored — admins never open Litmos.
+- ✅ **Assignments** — scheduling, due dates, open-assignment dedupe (one open
+  assignment per learner+course), and team bulk assign.
+- ✅ **Compliance profiles** — renewal months + warn windows per course; recompute
+  returns only status transitions; 30/60/90 forecast; optional auto-reassign on
+  expiry.
+- ✅ **Tenant rules engine** — 7 triggers, condition matching, 4 actions;
+  idempotent via the rule-run ledger (unique rule + event dedupe key); fired
+  from sync, the completion webhook, and the scheduler.
+- ✅ **Notification management** — 5 templates with variables, reminder cadence,
+  channel selection (including the new **Google Chat** channel), optional
+  learner emails, and the module-scoped audit log.
+- ✅ **Netflix-style library** — browsable course-library UI.
+- ✅ **Advanced reporting** — completion by course/team, overdue aging, monthly
+  trend, compliance forecast, Litmos×Jericho risk-vs-training correlation, and
+  5 CSV exports.
+- ✅ **Studio one-click publish** — creates/updates the Litmos course shell with
+  linkage columns on the Studio side; course content ships via the existing
+  HTML export because Litmos's public API has no content upload.
+- ✅ **Cron jobs** — `lms-sync`, `lms-activate`, `lms-poll`, `lms-duedates`.
+- ✅ **Dashboard** — LMS card + an overdue-training attention chip.
+
 ## Cross-cutting platform follow-ups
 
 These benefit every module and aren't owned by one:
@@ -168,7 +205,8 @@ These benefit every module and aren't owned by one:
 - **Object storage** — Make notes media-as-data-URL tech debt; add S3/R2.
 - ✅ **Email transport** — nodemailer wired into the unified notifier (URL-keyed
   cached transport, 10s send timeout); configurable per-org from the
-  integrations UI.
+  integrations UI. Google Chat has since joined Slack/Teams/email as a notifier
+  channel (added with the LMS build).
 - ✅ **Org integrations UI** — `/settings/integrations` configures per-org Slack /
   Teams / SMTP / Anthropic credentials in the encrypted secret store (values
   never rendered back; admin-gated). This is what makes the notify + AI features
