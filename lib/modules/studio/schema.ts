@@ -21,6 +21,10 @@ export const projects = pgTable("studio_projects", {
   createdByUserId: text("created_by_user_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  litmosCourseId: text("litmos_course_id"), // Litmos-side course id once published
+  litmosPublishedAt: bigint("litmos_published_at", { mode: "number" }),
+  litmosStatus: text("litmos_status"), // null | published | failed
+  litmosError: text("litmos_error"),
 });
 
 export const mediaAssets = pgTable("studio_media_assets", {

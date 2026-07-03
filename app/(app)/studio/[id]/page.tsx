@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireTenant } from "@/lib/platform/org";
 import { addBlock, deleteProject, getProject, moveBlock, parseDoc, removeBlock, setStatus, updateBlock } from "@/lib/modules/studio/projects";
+import { publishProjectToLitmos } from "@/lib/modules/studio/publish";
 import { generateCourse } from "@/lib/modules/studio/coursegen";
 import { BLOCK_TYPES, type Block } from "@/lib/modules/studio/types";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
@@ -72,6 +73,12 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
     await setStatus(orgId, id, p?.status === "published" ? "draft" : "published");
     revalidatePath(`/studio/${id}`);
   }
+  async function publishToLitmosAction() {
+    "use server";
+    const { orgId } = await requireTenant("member");
+    await publishProjectToLitmos(orgId, id);
+    revalidatePath(`/studio/${id}`);
+  }
   async function deleteAction() {
     "use server";
     const { orgId } = await requireTenant("admin");
@@ -90,6 +97,11 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
             <a href={`/api/studio/courses/${id}/export`} className="rounded-lg border border-jericho-border px-3 py-2 text-sm text-jericho-accent hover:bg-jericho-border/40">
               Export HTML
             </a>
+            <form action={publishToLitmosAction}>
+              <button className="rounded-lg border border-jericho-border px-3 py-2 text-sm text-jericho-accent hover:bg-jericho-border/40" type="submit">
+                {project.litmosCourseId === null ? "Publish to Litmos" : "Republish to Litmos"}
+              </button>
+            </form>
             <form action={publishAction}>
               <button className="rounded-lg bg-jericho-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90" type="submit">
                 {project.status === "published" ? "Unpublish" : "Publish"}
@@ -98,6 +110,19 @@ export default async function CourseEditorPage({ params }: { params: Promise<{ i
           </div>
         }
       />
+
+      {project.litmosStatus === "published" && (
+        <p className="text-xs text-jericho-good mb-4">
+          Published to Litmos as course {project.litmosCourseId} · {project.litmosPublishedAt ? new Date(project.litmosPublishedAt).toLocaleDateString() : "—"}
+          <span className="text-jericho-muted"> Publishing creates/updates the Litmos course shell — Litmos&apos;s API doesn&apos;t accept content uploads, so use Export HTML for SCORM packaging.</span>
+        </p>
+      )}
+      {project.litmosStatus === "failed" && (
+        <p className="text-xs text-jericho-bad mb-4">
+          Litmos publish failed: {project.litmosError}
+          <span className="text-jericho-muted"> Publishing creates/updates the Litmos course shell — Litmos&apos;s API doesn&apos;t accept content uploads, so use Export HTML for SCORM packaging.</span>
+        </p>
+      )}
 
       {doc.blocks.length === 0 ? (
         <EmptyState title="Empty course">Add blocks below, or generate a draft from a topic with AI.</EmptyState>

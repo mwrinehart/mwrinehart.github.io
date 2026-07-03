@@ -17,6 +17,10 @@ export async function migrateStudio(client: PoolClient): Promise<void> {
       updated_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_studio_projects_org ON studio_projects(org_id);
+    ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS litmos_course_id TEXT;
+    ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS litmos_published_at BIGINT;
+    ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS litmos_status TEXT;
+    ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS litmos_error TEXT;
 
     CREATE TABLE IF NOT EXISTS studio_media_assets (
       id TEXT PRIMARY KEY,

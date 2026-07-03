@@ -5,6 +5,7 @@
 
 import type { NextRequest } from "next/server";
 import { handleCompletion, verifyCompletionSignature, type CompletionPayload } from "@/lib/modules/behavior/litmos";
+import { lmsHandleCompletion } from "@/lib/modules/lms/workers";
 
 export async function POST(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "invalid json" }, { status: 400 });
   }
 
+  // Both modules track completions: behavior's training ledger and the LMS
+  // module's assignments (which also fires completion rules + notices).
   const updated = await handleCompletion(orgId, payload);
-  return Response.json({ ok: true, updated });
+  const lmsUpdated = await lmsHandleCompletion(orgId, payload);
+  return Response.json({ ok: true, updated: updated || lmsUpdated });
 }

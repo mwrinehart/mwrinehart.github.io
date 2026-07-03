@@ -6,6 +6,7 @@ import { complianceOverview } from "@/lib/modules/compliance/scan";
 import { campaignsOverview } from "@/lib/modules/campaigns/campaigns";
 import { pendingApprovalCount } from "@/lib/modules/campaigns/approvals";
 import { studioOverview } from "@/lib/modules/studio/projects";
+import { lmsOverview } from "@/lib/modules/lms/reports";
 import { PageHeader, Panel } from "@/components/ui";
 
 // The unified landing page: one live overview across every module — the thing
@@ -13,12 +14,13 @@ import { PageHeader, Panel } from "@/components/ui";
 // the module; the "needs attention" strip surfaces the actionable counts.
 export default async function DashboardPage() {
   const { orgId, role } = await requireTenant();
-  const [behavior, compliance, campaigns, pendingApprovals, studio] = await Promise.all([
+  const [behavior, compliance, campaigns, pendingApprovals, studio, lms] = await Promise.all([
     riskOverview(orgId),
     complianceOverview(orgId),
     campaignsOverview(orgId),
     pendingApprovalCount(orgId),
     studioOverview(orgId),
+    lmsOverview(orgId),
   ]);
 
   const atRisk = behavior.bands.high + behavior.bands.critical;
@@ -27,6 +29,7 @@ export default async function DashboardPage() {
     compliance.unanalyzed > 0 && { href: "/compliance", label: "Findings to analyze", count: compliance.unanalyzed },
     compliance.critical > 0 && { href: "/compliance", label: "Critical compliance findings", count: compliance.critical },
     atRisk > 0 && { href: "/behavior/risk", label: "High / critical-risk people", count: atRisk },
+    lms.overdue > 0 && { href: "/lms/assignments?status=overdue", label: "Overdue training assignments", count: lms.overdue },
   ].filter(Boolean) as Array<{ href: string; label: string; count: number }>;
 
   return (
@@ -79,6 +82,15 @@ export default async function DashboardPage() {
             { label: "Campaigns", value: campaigns.total },
             { label: "Active", value: campaigns.active },
             { label: "Approvals", value: pendingApprovals },
+          ]}
+        />
+        <ModuleCard
+          id="lms"
+          stats={[
+            { label: "Learners", value: lms.learners },
+            { label: "Courses", value: lms.courses },
+            { label: "Open", value: lms.openAssignments },
+            { label: "Overdue", value: lms.overdue },
           ]}
         />
         <ModuleCard

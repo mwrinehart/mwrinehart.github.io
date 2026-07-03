@@ -2,7 +2,7 @@
 // data snapshot across the module's domains, and a saved-reports ledger.
 
 import { randomUUID } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
 import {
   behaviorPeople,
@@ -86,4 +86,14 @@ export async function generateReport(orgId: string, input: { type: string; title
     status: "ready",
     createdAt: Date.now(),
   });
+}
+
+// Risk scores keyed by lowercased email, for cross-module correlation (the LMS
+// risk-vs-training report joins on email via app-layer routes).
+export async function riskByEmail(orgId: string): Promise<Array<{ email: string; name: string | null; riskScore: number }>> {
+  const rows = await db
+    .select({ email: behaviorPeople.email, name: behaviorPeople.name, riskScore: behaviorPeople.riskScore })
+    .from(behaviorPeople)
+    .where(and(eq(behaviorPeople.orgId, orgId), isNotNull(behaviorPeople.email)));
+  return rows.map((r) => ({ email: r.email.toLowerCase(), name: r.name, riskScore: r.riskScore }));
 }
