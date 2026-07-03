@@ -7,63 +7,13 @@
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { and, desc, eq, isNull, lte } from "drizzle-orm";
 import { db } from "@/lib/platform/db";
+import { findLitmosUserByEmail, getLitmosCreds, litmosFetch } from "@/lib/platform/litmos";
 import { getOrgSecret } from "@/lib/platform/secrets";
 import { litmosAssignments, type LitmosAssignmentRow } from "./schema";
 
-interface Creds {
-  base: string;
-  apiKey: string;
-  source: string;
-}
-
-async function litmosCreds(orgId: string): Promise<Creds | null> {
-  const apiKey = await getOrgSecret(orgId, "litmosApiKey");
-  if (!apiKey) return null;
-  let base = (await getOrgSecret(orgId, "litmosBaseUrl")) || "https://api.litmos.com/v1.svc";
-  if (!base.includes("/v1.svc")) base = base.replace(/\/+$/, "") + "/v1.svc";
-  const source = (await getOrgSecret(orgId, "litmosSource")) || "jericho-platform";
-  return { base, apiKey, source };
-}
-
-async function litmosFetch(creds: Creds, path: string, init?: RequestInit): Promise<Response> {
-  const sep = path.includes("?") ? "&" : "?";
-  const url = `${creds.base}${path}${sep}source=${encodeURIComponent(creds.source)}`;
-  return fetch(url, {
-    ...init,
-    headers: { apikey: creds.apiKey, accept: "application/json", "content-type": "application/json", ...(init?.headers ?? {}) },
-    signal: AbortSignal.timeout(20000),
-  });
-}
-
-// Envelope-safe: Litmos usually returns a bare array, but tolerate { Items: [...] }
-// / { results: [...] } so a wrapped response doesn't throw on .find/.length.
-function extractArray(json: unknown): Record<string, unknown>[] {
-  if (Array.isArray(json)) return json as Record<string, unknown>[];
-  if (json && typeof json === "object") {
-    for (const key of ["Items", "items", "results", "data", "Users"]) {
-      const v = (json as Record<string, unknown>)[key];
-      if (Array.isArray(v)) return v as Record<string, unknown>[];
-    }
-  }
-  return [];
-}
-
-// Resolve a Litmos user id by email, paging through /users (cap pages) so users
-// beyond the first 200 are still found.
-async function findLitmosUserId(creds: Creds, email: string): Promise<string | null> {
-  const target = email.toLowerCase();
-  if (!target) return null;
-  const PAGE = 200;
-  const MAX_PAGES = 50;
-  for (let start = 0; start < PAGE * MAX_PAGES; start += PAGE) {
-    const res = await litmosFetch(creds, `/users?limit=${PAGE}&start=${start}`);
-    if (!res.ok) throw new Error(`litmos users ${res.status}`);
-    const rows = extractArray(await res.json());
-    const match = rows.find((u) => String(u.Email ?? "").toLowerCase() === target);
-    if (match?.Id) return String(match.Id);
-    if (rows.length < PAGE) break;
-  }
-  return null;
+async function findLitmosUserId(creds: NonNullable<Awaited<ReturnType<typeof getLitmosCreds>>>, email: string): Promise<string | null> {
+  const user = await findLitmosUserByEmail(creds, email);
+  return user?.Id ? String(user.Id) : null;
 }
 
 // ─── reads ────────────────────────────────────────────────────────────────────
@@ -123,7 +73,7 @@ export async function createAssignments(orgId: string, assignedBy: string, items
 // course. Best-effort — failures are recorded on the row, never thrown.
 export async function activateAssignment(row: LitmosAssignmentRow): Promise<void> {
   try {
-    const creds = await litmosCreds(row.orgId);
+    const creds = await getLitmosCreds(row.orgId);
     if (!creds) {
       await fail(row.id, "Litmos API key not configured");
       return;
@@ -187,7 +137,7 @@ export async function pollCompletions(): Promise<{ checked: number; completed: n
   for (const row of active) {
     if (!row.litmosUserId) continue;
     try {
-      const creds = await litmosCreds(row.orgId);
+      const creds = await getLitmosCreds(row.orgId);
       if (!creds) continue;
       const res = await litmosFetch(creds, `/users/${row.litmosUserId}/courses/${row.litmosCourseId}`);
       if (!res.ok) continue;

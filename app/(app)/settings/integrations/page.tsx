@@ -22,7 +22,7 @@ export default async function IntegrationsPage() {
     // Only persist fields the admin actually filled in — a blank field keeps the
     // current value (so you can update one credential without re-entering them all).
     const patch: Record<string, string> = {};
-    for (const key of ["slackBotToken", "slackDefaultChannel", "slackWebhook", "teamsWebhook", "smtpUrl", "smtpFrom", "anthropicApiKey"]) {
+    for (const key of ["slackBotToken", "slackDefaultChannel", "slackWebhook", "teamsWebhook", "googleChatWebhook", "smtpUrl", "smtpFrom", "anthropicApiKey"]) {
       const v = String(formData.get(key) ?? "").trim();
       if (v) patch[key] = v;
     }
@@ -42,7 +42,7 @@ export default async function IntegrationsPage() {
     <>
       <PageHeader
         title="Integrations"
-        subtitle="Connect this organization's Slack, Teams, email (SMTP), and AI credentials. Stored encrypted; values are never displayed back."
+        subtitle="Connect this organization's Slack, Teams, Google Chat, email (SMTP), and AI credentials. Stored encrypted; values are never displayed back."
         action={
           <Link href="/settings" className="text-sm text-jericho-accent hover:underline">
             ← Settings
@@ -85,6 +85,18 @@ export default async function IntegrationsPage() {
           </div>
           <Field label="Incoming webhook URL" name="teamsWebhook" secret configured={set("teamsWebhook")} disabled={!isAdmin} placeholder="https://outlook.office.com/webhook/…" />
           {isAdmin && set("teamsWebhook") && <ClearButton action={clear} keys="teamsWebhook" label="Remove Teams" />}
+        </Panel>
+
+        <Panel>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">Google Chat</h3>
+            <StatusBadge on={set("googleChatWebhook")} />
+          </div>
+          <p className="text-xs text-jericho-muted mb-3">
+            Incoming webhook for a Google Chat space (Space settings → Apps &amp; integrations → Webhooks).
+          </p>
+          <Field label="Incoming webhook URL" name="googleChatWebhook" secret configured={set("googleChatWebhook")} disabled={!isAdmin} placeholder="https://chat.googleapis.com/v1/spaces/…" />
+          {isAdmin && set("googleChatWebhook") && <ClearButton action={clear} keys="googleChatWebhook" label="Remove Google Chat" />}
         </Panel>
 
         <Panel>

@@ -51,6 +51,15 @@ export const MODULES: ModuleDef[] = [
     status: "live",
   },
   {
+    id: "lms",
+    label: "LMS",
+    blurb: "Litmos without logging into Litmos: courses, learners, assignments, due dates, rules, and reporting.",
+    icon: "🎓",
+    href: "/lms",
+    sourceApp: "Litmos (SAP Litmos API)",
+    status: "live",
+  },
+  {
     id: "campaigns",
     label: "Campaigns",
     blurb: "Narrative campaign simulation with personas, approval gates, and audit trails.",

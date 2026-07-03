@@ -1,8 +1,8 @@
-// Unified outbound notifier. Slack, Teams, and email were each re-implemented in
-// CBM (comms.js), Horizon (email-notifications.js / sharepoint-sync.js), and Make
-// — here they live once. Credentials resolve from the org's encrypted secrets,
-// falling back to platform-wide env defaults. Every send is recorded in
-// notification_log for audit.
+// Unified outbound notifier. Slack, Teams, Google Chat, and email live once here
+// (Slack/Teams/email were each re-implemented in CBM's comms.js, Horizon's
+// email-notifications.js / sharepoint-sync.js, and Make). Credentials resolve
+// from the org's encrypted secrets, falling back to platform-wide env defaults.
+// Every send is recorded in notification_log for audit.
 //
 // Channel behavior preserved from CBM:
 //   - Slack via BOT TOKEN (chat.postMessage) when `slackBotToken` is set; the
@@ -40,12 +40,12 @@ function transportFor(url: string): Transporter {
   return t;
 }
 
-export type NotifyChannel = "slack" | "teams" | "email";
+export type NotifyChannel = "slack" | "teams" | "googlechat" | "email";
 
 export interface NotifyInput {
   orgId: string | null;
   channel: NotifyChannel;
-  /** Slack channel id / webhook URL, Teams webhook URL, or recipient email. */
+  /** Slack channel id / webhook URL, Teams/Google Chat webhook URL, or recipient email. */
   target?: string;
   subject?: string;
   body: string;
@@ -107,6 +107,24 @@ async function sendTeams(secrets: OrgSecrets, target: string | undefined, input:
   return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
 }
 
+// Google Chat renders *bold* like Slack; the simple-text webhook payload is
+// { text }. Exported for tests.
+export function buildGoogleChatPayload(subject: string | undefined, body: string): { text: string } {
+  return { text: subject ? `*${subject}*\n${body}` : body };
+}
+
+async function sendGoogleChat(secrets: OrgSecrets, target: string | undefined, input: NotifyInput): Promise<NotifyResult> {
+  const webhook = target || secrets.googleChatWebhook || str("GOOGLE_CHAT_DEFAULT_WEBHOOK");
+  if (!webhook) return { status: "skipped", error: "no google chat webhook configured" };
+  const res = await fetch(webhook, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildGoogleChatPayload(input.subject, input.body)),
+    signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+  });
+  return res.ok ? { status: "sent" } : { status: "failed", error: `http ${res.status}` };
+}
+
 async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: NotifyInput): Promise<NotifyResult> {
   if (!to) return { status: "skipped", error: "no recipient" };
   const url = secrets.smtpUrl || str("SMTP_URL");
@@ -138,6 +156,8 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
       result = await sendSlack(secrets, input.target, input);
     } else if (input.channel === "teams") {
       result = await sendTeams(secrets, input.target, input);
+    } else if (input.channel === "googlechat") {
+      result = await sendGoogleChat(secrets, input.target, input);
     } else {
       result = await sendEmail(secrets, input.target, input);
     }
