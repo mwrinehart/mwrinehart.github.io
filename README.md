@@ -9,11 +9,23 @@ single, multi-tenant platform with a shared spine and pluggable modules.
 | **Compliance** | Horizon Scanner | Regulatory & threat-feed scanning, AI summaries, policy mapping, alerting | Live |
 | **Studio** | Make (Content Studio) | eLearning authoring + AI course generation + HTML export (media gen provider-gated) | Live |
 | **Campaigns** | Mirage | Narrative campaign simulation: mission control, autonomy-gated content, approvals, audit | Live |
+| **Narrative** | New build | Disinformation monitoring: media/social scanning, narrative clustering, AI veracity verdicts, alerts, human-approved counter-messaging | Live |
 
 Instead of four apps each re-implementing auth, organizations, RBAC, secret
 storage, notifications, RSS scanning, and an AI client, the platform provides all
 of that **once** (`lib/platform/`) and each product becomes a module
 (`lib/modules/`, `app/(app)/<module>/`).
+
+**Narrative** is the first net-new module built on the spine (rather than a
+port): it monitors traditional + social media for the org's watch terms,
+clusters mentions into narratives, assesses them against an org-maintained
+verified fact library (AI-assisted, analyst-overridable), raises alerts when a
+false narrative is spreading, and drafts counter-messaging. Detection and
+drafting run at machine speed (cron + on-demand); **dissemination never does** —
+every counter-response requires explicit human approval, the platform never
+publishes anything itself, and the AI prompts forbid invented facts, sockpuppets,
+and covert amplification. See **Narrative → Load sample data** for a worked
+demo scenario.
 
 ## Stack
 

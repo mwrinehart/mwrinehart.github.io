@@ -58,6 +58,19 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     .trim();
 }
 
+// Lenient JSON extraction for AI output that was asked for STRICT JSON but may
+// still arrive wrapped in prose or code fences. Returns the parsed object, or
+// null on garbage — callers validate field types before persisting anything.
+export function extractJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(match ? match[0] : raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Convenience used by Compliance findings + Behavior pulse: one-shot summarize +
 // recommended actions for a piece of content.
 export async function summarize(text: string, context?: string): Promise<string> {

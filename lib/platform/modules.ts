@@ -59,6 +59,15 @@ export const MODULES: ModuleDef[] = [
     sourceApp: "Mirage",
     status: "live",
   },
+  {
+    id: "narrative",
+    label: "Narrative",
+    blurb: "Disinformation monitoring: detect false narratives across media at machine speed and counter them with the truth.",
+    icon: "🛰️",
+    href: "/narrative",
+    sourceApp: "Narrative Defense (new)",
+    status: "live",
+  },
 ];
 
 export function getModule(id: string): ModuleDef | undefined {
