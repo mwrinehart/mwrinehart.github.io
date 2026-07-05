@@ -8,6 +8,11 @@ management) — rebuilt as **one** multi-tenant application: a shared platform s
 plus pluggable product modules. The user-selected approach is a *unified rebuild*
 (one codebase) rather than a monorepo of separate apps.
 
+The spine has since carried its first **net-new** module, **Narrative**
+(disinformation monitoring and human-approved counter-messaging), built directly
+on the module contract rather than ported from a source app — see
+`MIGRATION-ROADMAP.md` Phase 5.
+
 ## Why this shape
 
 The four apps overlapped heavily and re-implemented the same primitives
