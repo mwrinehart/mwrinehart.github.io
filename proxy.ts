@@ -7,8 +7,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // /api/cron (CRON_SECRET), /api/webhooks (per-integration signatures), and
 // /api/widget (opaque per-org widget key) are authed by their own secrets/keys,
-// not a session cookie, so they're allowed through.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/api/health", "/api/cron", "/api/webhooks", "/api/widget"];
+// not a session cookie, so they're allowed through. /lottery.html is a public
+// static page (public/lottery.html) with no tenant data.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/api/health", "/api/cron", "/api/webhooks", "/api/widget", "/lottery.html"];
 
 function hasSessionCookie(req: NextRequest): boolean {
   return req.cookies.has("authjs.session-token") || req.cookies.has("__Secure-authjs.session-token");
