@@ -434,7 +434,7 @@ function fmtDateLong(iso) {
 
 const GAMES = {
   powerball: {
-    key: "powerball", name: "Powerball", specialName: "Powerball",
+    key: "powerball", name: "Powerball", specialName: "Powerball", ticketPrice: "$2",
     api: "https://data.ny.gov/resource/d6yy-54nr.json?$limit=5000&$order=draw_date%20DESC",
     whiteMax: 69, specialMax: 26,
     whiteEraStart: "2015-10-07", specialEraStart: "2015-10-07",
@@ -453,14 +453,9 @@ const GAMES = {
       { w: 0, s: true,  prize: "$4" },
     ],
     tierNote: "Base prizes shown; the optional Power Play multiplies non-jackpot prizes. Probabilities are exact, computed from the 5-of-69 + 1-of-26 matrix.",
-    parse(row) {
-      const toks = String(row.winning_numbers || "").trim().split(/\s+/).map(Number);
-      const whites = toks.slice(0, 5), special = toks[5];
-      return { whites, special };
-    },
   },
   megamillions: {
-    key: "megamillions", name: "Mega Millions", specialName: "Mega Ball",
+    key: "megamillions", name: "Mega Millions", specialName: "Mega Ball", ticketPrice: "$5",
     api: "https://data.ny.gov/resource/5xaw-6ayf.json?$limit=5000&$order=draw_date%20DESC",
     whiteMax: 70, specialMax: 24,
     whiteEraStart: "2017-10-31", specialEraStart: "2025-04-08",
@@ -469,24 +464,26 @@ const GAMES = {
     drawDays: [2, 5], drawTime: { h: 23, mi: 0 }, drawTimeLabel: "11:00 PM ET, Tue · Fri",
     tiers: [
       { w: 5, s: true,  prize: "Jackpot" },
-      { w: 5, s: false, prize: "$1M – $10M" },
-      { w: 4, s: true,  prize: "$10K – $100K" },
-      { w: 4, s: false, prize: "$500 – $5,000" },
-      { w: 3, s: true,  prize: "$200 – $2,000" },
-      { w: 3, s: false, prize: "$10 – $100" },
-      { w: 2, s: true,  prize: "$10 – $100" },
-      { w: 1, s: true,  prize: "$7 – $70" },
-      { w: 0, s: true,  prize: "$5 – $50" },
+      { w: 5, s: false, prize: "$2M – $10M" },
+      { w: 4, s: true,  prize: "$20K – $100K" },
+      { w: 4, s: false, prize: "$1,000 – $5,000" },
+      { w: 3, s: true,  prize: "$400 – $2,000" },
+      { w: 3, s: false, prize: "$20 – $100" },
+      { w: 2, s: true,  prize: "$20 – $100" },
+      { w: 1, s: true,  prize: "$14 – $70" },
+      { w: 0, s: true,  prize: "$10 – $50" },
     ],
-    tierNote: "Prize ranges reflect the built-in 2×–10× multiplier added in the April 2025 format change. Probabilities are exact, computed from the 5-of-70 + 1-of-24 matrix.",
-    parse(row) {
-      const toks = String(row.winning_numbers || "").trim().split(/\s+/).map(Number);
-      const whites = toks.slice(0, 5);
-      const special = row.mega_ball != null ? Number(row.mega_ball) : toks[5];
-      return { whites, special };
-    },
+    tierNote: "Since April 2025 every ticket carries a built-in 2×–10× multiplier (there is no 1×), so the ranges show the multiplied payouts — the minimum any winning ticket pays is $10. Probabilities are exact, computed from the 5-of-70 + 1-of-24 matrix.",
   },
 };
+
+// Both Socrata datasets share this shape: winning_numbers holds the five white
+// balls (Powerball's has the special as a sixth token; Mega Millions carries it
+// in a separate mega_ball field, so the toks[5] fallback covers both).
+function parseDraw(row) {
+  const toks = String(row.winning_numbers || "").trim().split(/\s+/).map(Number);
+  return { whites: toks.slice(0, 5), special: row.mega_ball != null ? Number(row.mega_ball) : toks[5] };
+}
 
 function jackpotCombos(g) { return comb(g.whiteMax, 5) * g.specialMax; }
 function tierProb(g, w, withSpecial) {
@@ -504,11 +501,11 @@ function parseRows(game, rows) {
   for (const row of rows) {
     const date = String(row.draw_date || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    const { whites, special } = game.parse(row);
+    const { whites, special } = parseDraw(row);
     if (!Array.isArray(whites) || whites.length !== 5) continue;
     if (whites.some((n) => !Number.isInteger(n) || n < 1)) continue;
     if (!Number.isInteger(special) || special < 1) continue;
-    out.push({ date, whites, special });
+    out.push({ date, whites, special, wkey: [...whites].sort((a, b) => a - b).join("-") });
   }
   out.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
   return out;
@@ -537,8 +534,9 @@ function computeStats(game, draws) {
   const whiteExpected = (whiteEra.length * 5) / game.whiteMax;
   const specialExpected = specialEra.length / game.specialMax;
 
-  const wChi = chiSquare(whiteCounts.slice(1), whiteExpected);
-  const sChi = chiSquare(specialCounts.slice(1), specialExpected);
+  // chi-square is undefined (0/0) on an empty era — represent that as null
+  const chi = (counts, expected, df) =>
+    expected > 0 ? (() => { const x = chiSquare(counts, expected); return { x, df, p: chiSquareP(x, df) }; })() : null;
 
   const rank = (counts, gaps) => {
     const balls = [];
@@ -555,29 +553,43 @@ function computeStats(game, draws) {
     whiteCounts, whiteGap, specialCounts, specialGap,
     whiteExpected, specialExpected,
     white: rank(whiteCounts, whiteGap), special: rank(specialCounts, specialGap),
-    whiteChi: { x: wChi, df: game.whiteMax - 1, p: chiSquareP(wChi, game.whiteMax - 1) },
-    specialChi: { x: sChi, df: game.specialMax - 1, p: chiSquareP(sChi, game.specialMax - 1) },
+    whiteChi: chi(whiteCounts.slice(1), whiteExpected, game.whiteMax - 1),
+    specialChi: chi(specialCounts.slice(1), specialExpected, game.specialMax - 1),
     latest: draws[0] || null,
     totalDraws: draws.length,
   };
 }
 
+// Returns true when it changed render-relevant state (new data, or the error
+// status flipped) so refresh() can skip needless full re-renders.
 async function loadGame(key, { force = false } = {}) {
   const game = GAMES[key];
   const fresh = state.fetchedAt[key] && Date.now() - state.fetchedAt[key] < 30 * 60 * 1000;
-  if (state.draws[key] && fresh && !force) return;
-  $("main").dataset.loading = "1";
+  if (state.draws[key] && fresh && !force) return false;
+  // Dim only while there is nothing to show yet — background refreshes keep
+  // the previous render at full opacity.
+  if (!state.stats[key]) $("main").dataset.loading = "1";
   try {
-    const res = await fetch(game.api, { headers: { accept: "application/json" } });
+    // no-store: the page's freshness promise must not depend on HTTP caches
+    const res = await fetch(game.api, { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const rows = await res.json();
     if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty dataset");
-    state.draws[key] = parseRows(game, rows);
-    state.stats[key] = computeStats(game, state.draws[key]);
+    const parsed = parseRows(game, rows);
+    if (parsed.length === 0) throw new Error("no parseable draws in dataset");
+    const prev = state.draws[key];
+    const changed = !prev || !!state.fetchErr[key] ||
+      prev.length !== parsed.length || prev[0].date !== parsed[0].date;
+    state.draws[key] = parsed;
+    state.stats[key] = computeStats(game, parsed);
     state.fetchedAt[key] = Date.now();
     state.fetchErr[key] = null;
+    return changed;
   } catch (e) {
-    state.fetchErr[key] = e.message || String(e);
+    const msg = e.message || String(e);
+    const changed = state.fetchErr[key] !== msg;
+    state.fetchErr[key] = msg;
+    return changed;
   } finally {
     delete $("main").dataset.loading;
   }
@@ -586,13 +598,22 @@ async function loadGame(key, { force = false } = {}) {
 /* ============================== tooltip ================================ */
 
 const tooltip = $("tooltip");
-function showTooltip(evt, valueText, lines) {
-  tooltip.replaceChildren(
-    el("div", { class: "tt-value" }, valueText),
-    ...lines.map((l) => el("div", { class: "tt-line" }, l)),
-  );
-  tooltip.style.display = "block";
-  const pad = 14, r = tooltip.getBoundingClientRect();
+let tooltipKey = null, tooltipRect = null;
+function showTooltip(evt, valueText, lines, key) {
+  // rebuild + measure only when the hovered mark changes; moves within the
+  // same mark just reposition (no forced layout per pointermove)
+  if (key == null || key !== tooltipKey) {
+    tooltip.replaceChildren(
+      el("div", { class: "tt-value" }, valueText),
+      ...lines.map((l) => el("div", { class: "tt-line" }, l)),
+    );
+    tooltip.style.display = "block";
+    tooltipRect = tooltip.getBoundingClientRect();
+    tooltipKey = key ?? null;
+  } else {
+    tooltip.style.display = "block";
+  }
+  const pad = 14, r = tooltipRect;
   let x = evt.clientX + pad, y = evt.clientY + pad;
   if (evt.clientX == null && evt.target) { // keyboard focus
     const b = evt.target.getBoundingClientRect();
@@ -602,12 +623,13 @@ function showTooltip(evt, valueText, lines) {
   if (y + r.height > innerHeight - 8) y = Math.max(8, y - r.height - 2 * pad);
   tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
 }
-function hideTooltip() { tooltip.style.display = "none"; }
+function hideTooltip() { tooltip.style.display = "none"; tooltipKey = null; }
 
 /* =============================== charts ================================ */
 
 function renderFreqChart(container, opts) {
-  const { counts, gaps, expected, draws, isSpecial } = opts;
+  const { counts, gaps, expected, draws } = opts;
+  hideTooltip(); // a tooltip anchored to the old chart would be orphaned by replaceChildren
   const n = counts.length - 1;
   const width = Math.max(320, container.clientWidth || 640);
   const m = { t: 18, r: 10, b: 24, l: 38 };
@@ -669,8 +691,9 @@ function renderFreqChart(container, opts) {
   }
 
   // hit targets: full band height, keyboard focusable, tooltip on hover+focus
+  const chartId = container.id || "chart";
   for (let b = 1; b <= n; b++) {
-    const share = draws ? (isSpecial ? counts[b] / draws : counts[b] / draws) : 0;
+    const share = draws ? counts[b] / draws : 0;
     const gapTxt = gaps[b] === Infinity ? "never drawn in this era"
       : gaps[b] === 0 ? "drawn in the latest drawing" : `last seen ${NF.format(gaps[b])} draws ago`;
     const lines = [
@@ -679,12 +702,13 @@ function renderFreqChart(container, opts) {
       gapTxt,
     ];
     const valueText = `${NF.format(counts[b] || 0)} draws`;
+    const key = `${chartId}:${b}`;
     const hit = el("rect", {
       class: "hit", x: m.l + (b - 1) * band, y: m.t, width: band, height: innerH,
       tabindex: "0", role: "img", "aria-label": `Ball ${b}: ${counts[b] || 0} draws; ${gapTxt}`,
-      onpointermove: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines); },
+      onpointermove: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines, key); },
       onpointerleave: () => { bars[b].classList.remove("hover"); hideTooltip(); },
-      onfocus: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines); },
+      onfocus: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines, key); },
       onblur: () => { bars[b].classList.remove("hover"); hideTooltip(); },
     });
     svg.append(hit);
@@ -749,25 +773,28 @@ function renderDrawCard(game, stats) {
       `the ${fmtDateLong(info.prevIso)} drawing has taken place but the source dataset hasn’t posted it yet. This page re-checks hourly.`));
   }
 
+  const cdv = el("div", { class: "value clock" });
   const tiles = $("drawTiles");
   tiles.replaceChildren(
     tile("Next drawing", info.next ? fmtDrawDate(info.next.epoch) : "—", null),
-    tile("Countdown", "", null, "countdownValue"),
+    tile("Countdown", cdv, null),
     tile("Drawings analyzed", stats ? NF.format(stats.totalDraws) : "—",
-      stats ? `${NF.format(stats.whiteEraDraws)} in the current number format` : null),
+      stats ? `${NF.format(stats.whiteEraDraws)} in the current white-ball format` : null),
     tile("Chance any single ticket wins something", oddsStr(anyPrizeProb(game)), "across all prize tiers"),
   );
 
   if (countdownTimer) clearInterval(countdownTimer);
+  const nextEpoch = info.next ? info.next.epoch : null; // fixed until the drawing passes
   const tick = () => {
-    const nfo = drawInfo(game);
-    const elv = $("countdownValue");
-    if (!elv || !nfo.next) return;
-    let ms = nfo.next.epoch - Date.now();
-    if (ms < 0) ms = 0;
+    if (!nextEpoch) return;
+    const ms = nextEpoch - Date.now();
+    if (ms <= 0) { // drawing just happened: recompute the next one, refresh banner/tiles
+      renderDrawCard(game, state.stats[game.key] || null);
+      return;
+    }
     const d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24,
           mi = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
-    elv.textContent = (d > 0 ? d + "d " : "") + pad2(h) + "h " + pad2(mi) + "m " + pad2(s) + "s";
+    cdv.textContent = (d > 0 ? d + "d " : "") + pad2(h) + "h " + pad2(mi) + "m " + pad2(s) + "s";
   };
   tick();
   countdownTimer = setInterval(tick, 1000);
@@ -786,9 +813,9 @@ function renderDrawCard(game, stats) {
   }
 }
 
-function tile(label, value, note, valueId) {
-  const v = el("div", { class: "value" + (valueId === "countdownValue" ? " clock" : "") }, value);
-  if (valueId) v.id = valueId;
+// value is either a string or a pre-built .value element the caller keeps a ref to
+function tile(label, value, note) {
+  const v = typeof value === "string" ? el("div", { class: "value" }, value) : value;
   const t = el("div", { class: "tile" }, el("div", { class: "label" }, label), v);
   if (note) t.append(el("div", { class: "note" }, note));
   return t;
@@ -820,9 +847,24 @@ function renderOddsCard(game) {
   $("tierNote").textContent = game.tierNote;
 }
 
+// The charts are the only width-dependent pieces — the ResizeObserver calls
+// this alone instead of rebuilding tables/miniballs that don't read width.
+function renderCharts(game, stats) {
+  renderFreqChart($("whiteChart"), {
+    counts: stats.whiteCounts, gaps: stats.whiteGap, expected: stats.whiteExpected,
+    draws: stats.whiteEraDraws,
+  });
+  const sp = $("specialChart");
+  sp.className = `chart special-${game.key}`;
+  renderFreqChart(sp, {
+    counts: stats.specialCounts, gaps: stats.specialGap, expected: stats.specialExpected,
+    draws: stats.specialEraDraws,
+  });
+}
+
 function renderFreqCard(game, stats) {
   $("freqSub").textContent = stats
-    ? `Every number drawn across ${NF.format(stats.totalDraws)} ${game.name} drawings in the dataset. Frequencies below are limited to draws under the current number format so the comparison is fair.`
+    ? `Every number drawn across ${NF.format(stats.totalDraws)} ${game.name} drawings in the dataset. Each chart counts only the era in which its ball pool took today's form (stated below it), so the comparison is fair.`
     : "Waiting for draw history…";
 
   $("whiteChartTitle").textContent = `White balls (1–${game.whiteMax})`;
@@ -837,16 +879,7 @@ function renderFreqCard(game, stats) {
   $("whiteChartSub").textContent = `${NF.format(stats.whiteEraDraws)} drawings ${game.whiteEraLabel}. The hairline marks the count a perfectly fair game expects for every ball.`;
   $("specialChartSub").textContent = `${NF.format(stats.specialEraDraws)} drawings ${game.specialEraLabel}.`;
 
-  renderFreqChart($("whiteChart"), {
-    counts: stats.whiteCounts, gaps: stats.whiteGap, expected: stats.whiteExpected,
-    draws: stats.whiteEraDraws, isSpecial: false,
-  });
-  const sp = $("specialChart");
-  sp.className = `chart special-${game.key}`;
-  renderFreqChart(sp, {
-    counts: stats.specialCounts, gaps: stats.specialGap, expected: stats.specialExpected,
-    draws: stats.specialEraDraws, isSpecial: true,
-  });
+  renderCharts(game, stats);
   renderFreqTable($("whiteTable"), stats.whiteCounts, stats.whiteGap, stats.whiteEraDraws, stats.whiteExpected);
   renderFreqTable($("specialTable"), stats.specialCounts, stats.specialGap, stats.specialEraDraws, stats.specialExpected);
 
@@ -867,12 +900,11 @@ function renderFreqCard(game, stats) {
 function sampleWithoutReplacement(weights, k) {
   const idx = weights.map((w, i) => i).filter((i) => i >= 1);
   const picked = [];
-  const w = weights.slice();
   for (let j = 0; j < k; j++) {
-    const total = idx.reduce((s, i) => s + w[i], 0);
+    const total = idx.reduce((s, i) => s + weights[i], 0);
     let r = Math.random() * total;
     let chosen = idx[idx.length - 1];
-    for (const i of idx) { r -= w[i]; if (r <= 0) { chosen = i; break; } }
+    for (const i of idx) { r -= weights[i]; if (r <= 0) { chosen = i; break; } }
     picked.push(chosen);
     idx.splice(idx.indexOf(chosen), 1);
   }
@@ -914,9 +946,12 @@ function renderPickCard(game, stats) {
   $("pickDisclaim").textContent =
     `The honest part: every one of these strategies produces a ticket with exactly the same 1 in ${NF.format(jackpotCombos(game))} jackpot probability. ` +
     `“Hot” and “overdue” describe the past — they carry zero information about the next drawing.`;
+  // stats-based modes need at least one draw in BOTH eras, or "hot"/"overdue"
+  // would confidently present never-drawn balls
+  const statsUsable = !!stats && stats.whiteEraDraws > 0 && stats.specialEraDraws > 0;
   for (const btn of document.querySelectorAll("#pickCard [data-mode]")) {
     const needsStats = btn.dataset.mode !== "random";
-    btn.disabled = needsStats && !stats;
+    btn.disabled = needsStats && !statsUsable;
   }
   // keep the current pick across background refreshes; clear only on game switch
   const card = $("pickCard");
@@ -930,7 +965,7 @@ function renderPickCard(game, stats) {
 function doPick(mode) {
   const game = GAMES[state.game], stats = state.stats[state.game];
   const m = PICK_MODES[mode];
-  if (!m || (mode !== "random" && !stats)) return;
+  if (!m || (mode !== "random" && !(stats && stats.whiteEraDraws > 0 && stats.specialEraDraws > 0))) return;
   const pick = m.make(game, stats);
   renderBallRow($("pickBalls"), pick.whites, pick.special, game.key);
   $("pickMode").textContent = m.label;
@@ -976,15 +1011,14 @@ function doCheck() {
     return;
   }
 
-  const sorted = [...whites].sort((a, b) => a - b);
-  const key = sorted.join("-");
+  const key = [...whites].sort((a, b) => a - b).join("-");
   const nodes = [
     el("p", {}, el("strong", {}, `Probability this exact ticket wins the next jackpot: 1 in ${NF.format(jackpotCombos(game))}.`),
       " Identical for every possible ticket — before and after any analysis."),
   ];
   if (draws) {
-    const exact = draws.filter((d) => d.special === special && [...d.whites].sort((a, b) => a - b).join("-") === key);
-    const whitesOnly = draws.filter((d) => [...d.whites].sort((a, b) => a - b).join("-") === key);
+    const whitesOnly = draws.filter((d) => d.wkey === key);
+    const exact = whitesOnly.filter((d) => d.special === special);
     nodes.push(el("p", {}, exact.length
       ? `This exact combination HAS won before — on ${exact.map((d) => fmtDateLong(d.date)).join(", ")}. (It’s no more or less likely to win again.)`
       : `This exact combination has never been drawn in ${NF.format(draws.length)} recorded ${game.name} drawings.`));
@@ -1006,16 +1040,21 @@ function doCheck() {
 function renderRealityCard(game, stats) {
   const body = $("realityBody");
   const nodes = [];
-  if (stats) {
+  if (stats && stats.whiteChi && stats.specialChi) {
     const w = stats.whiteChi, s = stats.specialChi;
     const fmtP = (p) => (p < 0.001 ? "< 0.001" : p.toFixed(2));
     const uniform = w.p > 0.05 && s.p > 0.05;
     nodes.push(el("p", { class: "verdict" },
-      el("strong", {}, `Chi-square test across all ${NF.format(stats.whiteEraDraws)} current-format drawings: `),
-      `white balls χ² = ${w.x.toFixed(1)} (df ${w.df}, p = ${fmtP(w.p)}); ${game.specialName} χ² = ${s.x.toFixed(1)} (df ${s.df}, p = ${fmtP(s.p)}). ` +
+      el("strong", {}, "Chi-square test on the current formats: "),
+      `white balls χ² = ${w.x.toFixed(1)} (df ${w.df}, p = ${fmtP(w.p)}) across ${NF.format(stats.whiteEraDraws)} drawings; ` +
+      `${game.specialName} χ² = ${s.x.toFixed(1)} (df ${s.df}, p = ${fmtP(s.p)}) across ${NF.format(stats.specialEraDraws)} drawings. ` +
       (uniform
         ? "The observed frequencies are statistically indistinguishable from a perfectly fair, uniform draw. The “hot” and “cold” numbers above are exactly the amount of noise chance produces."
         : "Some deviation from uniform appears in this sample — with this many balls, occasional low p-values are themselves expected by chance.")));
+  } else if (stats) {
+    nodes.push(el("p", { class: "verdict" },
+      el("strong", {}, "Fairness test: "),
+      "not enough drawings under the current format yet to run a meaningful uniformity test."));
   }
   nodes.push(
     el("p", {},
@@ -1026,7 +1065,7 @@ function renderRealityCard(game, stats) {
       "Knowing the real odds before you spend money, verifying the game behaves fairly (it does — see the test above), checking tickets against history, and generating picks. The one genuinely useful strategy is minimizing jackpot-splitting: unpopular combinations (numbers over 31, no neat patterns) win the same amount less often shared."),
     el("p", {},
       el("strong", {}, "Expected value. "),
-      `A ${game.name === "Powerball" ? "$2" : "$5"} ticket returns, on average, well under its price across all prize tiers — the lottery keeps roughly 30–50% of every dollar. Play for fun, never as a plan.`),
+      `A ${game.ticketPrice} ticket returns, on average, well under its price across all prize tiers — these games pay out only about half of ticket sales as prizes. Play for fun, never as a plan.`),
   );
   body.replaceChildren(...nodes);
 }
@@ -1045,8 +1084,8 @@ function renderAll() {
 }
 
 async function refresh(force = false) {
-  await loadGame(state.game, { force });
-  renderAll();
+  const changed = await loadGame(state.game, { force });
+  if (changed) renderAll(); // unchanged data (or a fresh-cache no-op) keeps the current DOM
 }
 
 function switchGame(key) {
@@ -1067,23 +1106,24 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("#checkBtn")) { doCheck(); return; }
 });
 
-// re-render charts on resize (width-aware SVG)
+// re-render just the charts on resize (they're the only width-dependent DOM)
 let lastW = 0;
 new ResizeObserver(() => {
   const w = $("whiteChart").clientWidth;
   if (w && Math.abs(w - lastW) > 4) {
     lastW = w;
     const stats = state.stats[state.game];
-    if (stats) renderFreqCard(GAMES[state.game], stats);
+    if (stats) renderCharts(GAMES[state.game], stats);
   }
 }).observe($("whiteChart"));
 
-// hourly re-check keeps drawing-day results fresh; also re-check when the tab
-// becomes visible again after being stale
-setInterval(() => refresh(true), 60 * 60 * 1000);
+// hourly re-check keeps drawing-day results fresh (skipped while hidden — the
+// visibilitychange handler catches up the moment the tab returns, including
+// after a failed initial load, which never sets fetchedAt)
+setInterval(() => { if (!document.hidden) refresh(true); }, 60 * 60 * 1000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && state.fetchedAt[state.game] &&
-      Date.now() - state.fetchedAt[state.game] > 30 * 60 * 1000) refresh(true);
+  const at = state.fetchedAt[state.game];
+  if (!document.hidden && (state.fetchErr[state.game] || !at || Date.now() - at > 30 * 60 * 1000)) refresh(true);
 });
 
 renderAll();
