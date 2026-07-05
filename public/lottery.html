@@ -1,0 +1,1097 @@
+<!doctype html>
+<!--
+  Lottery Draw Analyzer — Powerball & Mega Millions
+  Self-contained static app (no build step, no dependencies).
+
+  Data: New York State Open Data (Socrata) public APIs, fetched fresh on every
+  page load — so on drawing day it always reflects the complete draw history
+  through the most recent drawing:
+    Powerball      https://data.ny.gov/resource/d6yy-54nr.json
+    Mega Millions  https://data.ny.gov/resource/5xaw-6ayf.json
+
+  The app is deliberately honest: drawings are independent, so historical
+  frequencies cannot predict the next draw. It computes real probabilities
+  (prize-tier odds, per-ball frequencies, a chi-square uniformity test) and
+  says exactly what they do and don't mean.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Powerball & Mega Millions draw analyzer: live draw history, next-drawing countdown, exact prize odds, frequency analysis, and an honest look at what the math can and can't tell you.">
+<title>Lottery Draw Analyzer — Powerball &amp; Mega Millions</title>
+<style>
+  :root {
+    --page:        #f9f9f7;
+    --surface-1:   #fcfcfb;
+    --text-primary:#0b0b0b;
+    --text-secondary:#52514e;
+    --text-muted:  #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --series-white:#2a78d6;   /* white-ball frequency marks */
+    --series-pb:   #e34948;   /* Powerball special-ball marks */
+    --series-mb:   #eda100;   /* Mega Ball special-ball marks */
+    --good:        #006300;
+    --ball-num:    #0b0b0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page:        #0d0d0d;
+      --surface-1:   #1a1a19;
+      --text-primary:#ffffff;
+      --text-secondary:#c3c2b7;
+      --text-muted:  #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --border:      rgba(255,255,255,0.10);
+      --series-white:#3987e5;
+      --series-pb:   #e66767;
+      --series-mb:   #c98500;
+      --good:        #0ca30c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { font-size: 26px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p.sub { margin: 0 0 20px; color: var(--text-secondary); }
+
+  /* ---- game tabs (the one filter row; scopes everything below) ---- */
+  .tabs { display: flex; gap: 8px; margin: 0 0 20px; }
+  .tab {
+    appearance: none; border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-primary); font: inherit; font-weight: 600;
+    padding: 9px 18px; border-radius: 999px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .tab .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .tab[data-game="powerball"] .dot { background: var(--series-pb); }
+  .tab[data-game="megamillions"] .dot { background: var(--series-mb); }
+  .tab[aria-pressed="true"] { outline: 2px solid var(--series-white); outline-offset: -1px; }
+  .tab:hover { background: color-mix(in srgb, var(--surface-1) 92%, var(--text-primary)); }
+
+  /* ---- cards ---- */
+  section.card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin: 0 0 16px;
+  }
+  section.card h2 { margin: 0 0 2px; font-size: 17px; font-weight: 650; }
+  section.card p.cardsub { margin: 0 0 14px; color: var(--text-muted); font-size: 13px; }
+  main[data-loading="1"] section.card { opacity: 0.55; transition: opacity .2s; }
+
+  .banner {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; margin: 0 0 14px; font-size: 14px;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--surface-1) 85%, var(--series-white) 15%);
+  }
+  .banner strong { color: var(--text-primary); }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: 1px;
+    background: var(--series-white); color: #fff;
+  }
+
+  /* ---- stat tiles ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+  .tile .value { font-size: 20px; font-weight: 650; }
+  .tile .value.clock { font-variant-numeric: tabular-nums; } /* ticking digits must not jitter */
+  .tile .note  { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* ---- drawn balls ---- */
+  .balls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ball {
+    width: 42px; height: 42px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+    background: var(--surface-1); color: var(--ball-num);
+    border: 1px solid var(--baseline);
+    box-shadow: inset 0 -3px 6px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) { .ball { background: #f2f1ec; } }
+  .ball.special-powerball    { background: var(--series-pb); border-color: transparent; color: #fff; }
+  .ball.special-megamillions { background: var(--series-mb); border-color: transparent; color: #0b0b0b; }
+
+  /* ---- hero figure ---- */
+  .hero { margin: 4px 0 2px; }
+  .hero .lead { font-size: 15px; color: var(--text-secondary); }
+  .hero .big  { font-size: clamp(34px, 6vw, 48px); font-weight: 650; line-height: 1.15; letter-spacing: -0.01em; }
+  .hero .after { font-size: 13px; color: var(--text-muted); }
+
+  /* ---- tables ---- */
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 12px; }
+  th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--grid); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+
+  details.tableview { margin-top: 10px; }
+  details.tableview summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  details.tableview .scroll { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+
+  /* ---- charts ---- */
+  .chart { margin: 6px 0 2px; }
+  .chart svg { display: block; width: 100%; }
+  .chart .bar          { fill: var(--series-white); }
+  .chart.special-powerball .bar    { fill: var(--series-pb); }
+  .chart.special-megamillions .bar { fill: var(--series-mb); }
+  .chart .bar.hover { filter: brightness(1.18); }
+  .chart .grid  { stroke: var(--grid); stroke-width: 1; }
+  .chart .axis  { stroke: var(--baseline); stroke-width: 1; }
+  .chart .ref   { stroke: var(--baseline); stroke-width: 1; }
+  .chart text   { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart text.reflabel, .chart text.caplabel {
+    fill: var(--text-secondary);
+    paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round;
+  }
+  .chart text.caplabel { font-weight: 600; }
+  .chart .hit { fill: transparent; cursor: default; }
+  .chart .hit:focus { outline: none; }
+  .chart .hit:focus-visible { fill: color-mix(in srgb, transparent 80%, var(--text-primary)); }
+
+  .tooltip {
+    position: fixed; z-index: 10; pointer-events: none; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 8px 11px; max-width: 240px; font-size: 13px;
+  }
+  .tooltip .tt-value { font-weight: 700; font-size: 15px; }
+  .tooltip .tt-line  { color: var(--text-secondary); font-size: 12px; }
+
+  .hotcold { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 14px; }
+  .hotcold h3 { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--text-secondary); }
+  .miniballs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .miniball {
+    min-width: 34px; height: 34px; padding: 0 4px; border-radius: 999px;
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 1px solid var(--border); font-weight: 700; font-size: 14px; line-height: 1;
+  }
+  .miniball small { font-weight: 400; font-size: 9px; color: var(--text-muted); margin-top: 1px; }
+
+  /* ---- generator / checker ---- */
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  button.act {
+    appearance: none; font: inherit; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+    padding: 8px 14px; border-radius: 8px;
+  }
+  button.act:hover:not(:disabled) { background: color-mix(in srgb, var(--surface-1) 92%, var(--text-primary)); }
+  button.act:disabled { opacity: .45; cursor: not-allowed; }
+  button.act.primary { background: var(--series-white); border-color: transparent; color: #fff; }
+  button.act.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--series-white) 88%, #000); }
+  .pickout { min-height: 50px; }
+  .pickmode { font-size: 13px; color: var(--text-secondary); margin: 8px 0 0; }
+  .disclaim { font-size: 13px; color: var(--text-muted); margin: 10px 0 0; }
+
+  .checkrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .checkrow input[type=number] {
+    width: 62px; padding: 8px 6px; text-align: center; font: inherit; font-weight: 600;
+    border: 1px solid var(--baseline); border-radius: 8px; background: var(--surface-1); color: var(--text-primary);
+  }
+  .checkrow input.special-powerball    { border-color: var(--series-pb); border-width: 2px; }
+  .checkrow input.special-megamillions { border-color: var(--series-mb); border-width: 2px; }
+  .checkout p { margin: 6px 0; }
+  .err { color: var(--series-pb); font-weight: 600; }
+
+  .reality p { margin: 8px 0; color: var(--text-secondary); }
+  .reality strong { color: var(--text-primary); }
+  .verdict { border-left: 3px solid var(--good); padding-left: 12px; }
+
+  footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; line-height: 1.6; }
+  footer a { color: var(--text-secondary); }
+  .fetcherr { color: var(--series-pb); font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lottery Draw Analyzer</h1>
+    <p class="sub">Powerball &amp; Mega Millions — full draw history, exact probabilities for the next drawing, and an honest look at what the numbers can (and can’t) tell you.</p>
+  </header>
+
+  <nav class="tabs" aria-label="Game">
+    <button class="tab" data-game="powerball" aria-pressed="true"><span class="dot"></span>Powerball</button>
+    <button class="tab" data-game="megamillions" aria-pressed="false"><span class="dot"></span>Mega Millions</button>
+  </nav>
+
+  <main id="main">
+    <section class="card" id="drawCard">
+      <h2 id="drawTitle">Next drawing</h2>
+      <p class="cardsub" id="drawSub">Loading draw history…</p>
+      <div id="drawBanner"></div>
+      <div class="tiles" id="drawTiles"></div>
+      <h2 style="font-size:15px">Latest winning numbers</h2>
+      <p class="cardsub" id="latestSub"></p>
+      <div class="balls" id="latestBalls"></div>
+    </section>
+
+    <section class="card" id="oddsCard">
+      <h2>Probability of the next winning numbers</h2>
+      <p class="cardsub" id="oddsSub"></p>
+      <div class="hero">
+        <div class="lead">Every specific ticket — any 5 numbers + the special ball — has exactly</div>
+        <div class="big" id="heroOdds"></div>
+        <div class="after">odds of being the next jackpot combination. This is fixed by the game’s design and no analysis can change it.</div>
+      </div>
+      <h3 style="font-size:14px;margin:18px 0 8px">Prize-tier probabilities for one ticket</h3>
+      <div id="tierTable"></div>
+      <p class="disclaim" id="tierNote"></p>
+    </section>
+
+    <section class="card" id="freqCard">
+      <h2>Frequency analysis of every past drawing</h2>
+      <p class="cardsub" id="freqSub"></p>
+
+      <h3 style="font-size:14px;margin:12px 0 0" id="whiteChartTitle"></h3>
+      <p class="cardsub" id="whiteChartSub" style="margin-bottom:4px"></p>
+      <div class="chart" id="whiteChart"></div>
+      <details class="tableview"><summary>Table view — white balls</summary><div class="scroll" id="whiteTable"></div></details>
+
+      <h3 style="font-size:14px;margin:20px 0 0" id="specialChartTitle"></h3>
+      <p class="cardsub" id="specialChartSub" style="margin-bottom:4px"></p>
+      <div class="chart" id="specialChart"></div>
+      <details class="tableview"><summary>Table view — special ball</summary><div class="scroll" id="specialTable"></div></details>
+
+      <div class="hotcold" id="hotcold"></div>
+    </section>
+
+    <section class="card" id="pickCard">
+      <h2>Pick generator</h2>
+      <p class="cardsub">Four strategies built from the analysis above — plus the truth about all of them.</p>
+      <div class="btnrow">
+        <button class="act primary" data-mode="hot">Hot pick</button>
+        <button class="act" data-mode="overdue">Overdue pick</button>
+        <button class="act" data-mode="weighted">Frequency-weighted random</button>
+        <button class="act" data-mode="random">Pure quick pick</button>
+      </div>
+      <div class="pickout"><div class="balls" id="pickBalls"></div><p class="pickmode" id="pickMode"></p></div>
+      <p class="disclaim" id="pickDisclaim"></p>
+    </section>
+
+    <section class="card" id="checkCard">
+      <h2>Check a ticket</h2>
+      <p class="cardsub" id="checkSub"></p>
+      <div class="checkrow" id="checkInputs"></div>
+      <div class="btnrow"><button class="act primary" id="checkBtn">Check this ticket</button></div>
+      <div class="checkout" id="checkOut"></div>
+    </section>
+
+    <section class="card reality" id="realityCard">
+      <h2>Reality check — what this data actually says</h2>
+      <div id="realityBody"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Data: <a href="https://data.ny.gov" rel="noopener">New York State Open Data</a> (Socrata) — official Powerball and Mega Millions winning-number datasets, refreshed after each drawing; this page re-fetches them on every load and re-checks hourly, so it is current on drawing day. Results typically post to the dataset within hours of the draw.</p>
+    <p>This tool is for education and entertainment. It is not affiliated with MUSL, the Mega Millions consortium, or any lottery. Lottery tickets are a form of gambling with a negative expected return — never spend money you can’t afford to lose. If gambling is a problem for you or someone you know, call 1-800-GAMBLER.</p>
+  </footer>
+</div>
+<div class="tooltip" id="tooltip" role="status"></div>
+
+<script>
+"use strict";
+
+/* ============================== utilities ============================== */
+
+const NF = new Intl.NumberFormat("en-US");
+const $ = (id) => document.getElementById(id);
+
+function el(tag, attrs, ...children) {
+  const ns = "http://www.w3.org/2000/svg";
+  const isSvg = ["svg","rect","path","line","text","g"].includes(tag);
+  const node = isSvg ? document.createElementNS(ns, tag) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.setAttribute("class", v);
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) {
+    if (c == null) continue;
+    node.append(typeof c === "string" ? document.createTextNode(c) : c);
+  }
+  return node;
+}
+
+function comb(n, k) {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  return Math.round(r);
+}
+
+function oddsStr(p) {
+  const inv = 1 / p;
+  if (inv >= 1000) return "1 in " + NF.format(Math.round(inv));
+  if (inv >= 100) return "1 in " + NF.format(Math.round(inv * 10) / 10);
+  return "1 in " + NF.format(Math.round(inv * 100) / 100);
+}
+
+function fmtPct(p) {
+  const pct = p * 100;
+  if (pct >= 0.01) return pct.toFixed(2) + "%";
+  if (pct >= 0.0001) return pct.toFixed(4) + "%";
+  return pct.toFixed(7).replace(/0+$/, "") + "%";
+}
+
+function erf(x) { // Abramowitz & Stegun 7.1.26
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+const normCdf = (z) => 0.5 * (1 + erf(z / Math.SQRT2));
+
+function chiSquare(counts, expected) {
+  let x = 0;
+  for (const c of counts) x += (c - expected) ** 2 / expected;
+  return x;
+}
+function chiSquareP(x, df) { // Wilson–Hilferty approximation
+  const mu = 1 - 2 / (9 * df), sd = Math.sqrt(2 / (9 * df));
+  return 1 - normCdf((Math.cbrt(x / df) - mu) / sd);
+}
+
+/* ============================ eastern time ============================= */
+
+const ET_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York", hourCycle: "h23", weekday: "short",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
+const WDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function etParts(d = new Date()) {
+  const p = {};
+  for (const { type, value } of ET_FMT.formatToParts(d)) p[type] = value;
+  return {
+    y: +p.year, mo: +p.month, d: +p.day,
+    h: +p.hour, mi: +p.minute, s: +p.second,
+    wd: WDAYS.indexOf(p.weekday),
+  };
+}
+
+// epoch ms for a wall-clock time in America/New_York
+function etWallToEpoch(y, mo, d, h, mi) {
+  let guess = Date.UTC(y, mo - 1, d, h, mi);
+  for (let i = 0; i < 3; i++) {
+    const p = etParts(new Date(guess));
+    const asUtc = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s);
+    guess += Date.UTC(y, mo - 1, d, h, mi) - asUtc;
+  }
+  return guess;
+}
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function isoDate(y, mo, d) { return `${y}-${pad2(mo)}-${pad2(d)}`; }
+
+// next/previous drawing for a game, relative to now
+function drawInfo(game, now = new Date()) {
+  const t = etParts(now);
+  const find = (dir) => {
+    for (let add = 0; add <= 7; add++) {
+      const off = dir * add;
+      const probe = new Date(Date.UTC(t.y, t.mo - 1, t.d + off, 12));
+      const wd = probe.getUTCDay();
+      if (!game.drawDays.includes(wd)) continue;
+      const [y, mo, d] = [probe.getUTCFullYear(), probe.getUTCMonth() + 1, probe.getUTCDate()];
+      const epoch = etWallToEpoch(y, mo, d, game.drawTime.h, game.drawTime.mi);
+      if (dir > 0 && epoch > now.getTime()) return { y, mo, d, epoch };
+      if (dir < 0 && epoch <= now.getTime()) return { y, mo, d, epoch };
+    }
+    return null;
+  };
+  const next = find(1), prev = find(-1);
+  return {
+    next, prev,
+    nextIso: next && isoDate(next.y, next.mo, next.d),
+    prevIso: prev && isoDate(prev.y, prev.mo, prev.d),
+    isTonight: next && isoDate(next.y, next.mo, next.d) === isoDate(t.y, t.mo, t.d),
+  };
+}
+
+function fmtDrawDate(epoch) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric",
+    hour: "numeric", minute: "2-digit",
+  }).format(new Date(epoch)) + " ET";
+}
+function fmtDateLong(iso) {
+  const [y, mo, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(y, mo - 1, d)));
+}
+
+/* ============================ game configs ============================= */
+
+const GAMES = {
+  powerball: {
+    key: "powerball", name: "Powerball", specialName: "Powerball",
+    api: "https://data.ny.gov/resource/d6yy-54nr.json?$limit=5000&$order=draw_date%20DESC",
+    whiteMax: 69, specialMax: 26,
+    whiteEraStart: "2015-10-07", specialEraStart: "2015-10-07",
+    whiteEraLabel: "since the current 69-ball / 26-ball format began (Oct 7, 2015)",
+    specialEraLabel: "since the current 26-ball format began (Oct 7, 2015)",
+    drawDays: [1, 3, 6], drawTime: { h: 22, mi: 59 }, drawTimeLabel: "10:59 PM ET, Mon · Wed · Sat",
+    tiers: [
+      { w: 5, s: true,  prize: "Jackpot" },
+      { w: 5, s: false, prize: "$1,000,000" },
+      { w: 4, s: true,  prize: "$50,000" },
+      { w: 4, s: false, prize: "$100" },
+      { w: 3, s: true,  prize: "$100" },
+      { w: 3, s: false, prize: "$7" },
+      { w: 2, s: true,  prize: "$7" },
+      { w: 1, s: true,  prize: "$4" },
+      { w: 0, s: true,  prize: "$4" },
+    ],
+    tierNote: "Base prizes shown; the optional Power Play multiplies non-jackpot prizes. Probabilities are exact, computed from the 5-of-69 + 1-of-26 matrix.",
+    parse(row) {
+      const toks = String(row.winning_numbers || "").trim().split(/\s+/).map(Number);
+      const whites = toks.slice(0, 5), special = toks[5];
+      return { whites, special };
+    },
+  },
+  megamillions: {
+    key: "megamillions", name: "Mega Millions", specialName: "Mega Ball",
+    api: "https://data.ny.gov/resource/5xaw-6ayf.json?$limit=5000&$order=draw_date%20DESC",
+    whiteMax: 70, specialMax: 24,
+    whiteEraStart: "2017-10-31", specialEraStart: "2025-04-08",
+    whiteEraLabel: "since the 70-ball format began (Oct 31, 2017)",
+    specialEraLabel: "since the 24-ball Mega Ball format began (Apr 8, 2025)",
+    drawDays: [2, 5], drawTime: { h: 23, mi: 0 }, drawTimeLabel: "11:00 PM ET, Tue · Fri",
+    tiers: [
+      { w: 5, s: true,  prize: "Jackpot" },
+      { w: 5, s: false, prize: "$1M – $10M" },
+      { w: 4, s: true,  prize: "$10K – $100K" },
+      { w: 4, s: false, prize: "$500 – $5,000" },
+      { w: 3, s: true,  prize: "$200 – $2,000" },
+      { w: 3, s: false, prize: "$10 – $100" },
+      { w: 2, s: true,  prize: "$10 – $100" },
+      { w: 1, s: true,  prize: "$7 – $70" },
+      { w: 0, s: true,  prize: "$5 – $50" },
+    ],
+    tierNote: "Prize ranges reflect the built-in 2×–10× multiplier added in the April 2025 format change. Probabilities are exact, computed from the 5-of-70 + 1-of-24 matrix.",
+    parse(row) {
+      const toks = String(row.winning_numbers || "").trim().split(/\s+/).map(Number);
+      const whites = toks.slice(0, 5);
+      const special = row.mega_ball != null ? Number(row.mega_ball) : toks[5];
+      return { whites, special };
+    },
+  },
+};
+
+function jackpotCombos(g) { return comb(g.whiteMax, 5) * g.specialMax; }
+function tierProb(g, w, withSpecial) {
+  const pw = (comb(5, w) * comb(g.whiteMax - 5, 5 - w)) / comb(g.whiteMax, 5);
+  return pw * (withSpecial ? 1 / g.specialMax : (g.specialMax - 1) / g.specialMax);
+}
+function anyPrizeProb(g) { return g.tiers.reduce((s, t) => s + tierProb(g, t.w, t.s), 0); }
+
+/* =========================== data & stats ============================== */
+
+const state = { game: "powerball", draws: {}, stats: {}, fetchedAt: {}, fetchErr: {} };
+
+function parseRows(game, rows) {
+  const out = [];
+  for (const row of rows) {
+    const date = String(row.draw_date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const { whites, special } = game.parse(row);
+    if (!Array.isArray(whites) || whites.length !== 5) continue;
+    if (whites.some((n) => !Number.isInteger(n) || n < 1)) continue;
+    if (!Number.isInteger(special) || special < 1) continue;
+    out.push({ date, whites, special });
+  }
+  out.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+  return out;
+}
+
+function computeStats(game, draws) {
+  const whiteEra = draws.filter((d) => d.date >= game.whiteEraStart && d.whites.every((n) => n <= game.whiteMax));
+  const specialEra = draws.filter((d) => d.date >= game.specialEraStart && d.special <= game.specialMax);
+
+  const whiteCounts = Array(game.whiteMax + 1).fill(0);
+  const whiteGap = Array(game.whiteMax + 1).fill(Infinity);
+  whiteEra.forEach((d, i) => {
+    for (const n of d.whites) {
+      whiteCounts[n]++;
+      if (whiteGap[n] === Infinity) whiteGap[n] = i;
+    }
+  });
+
+  const specialCounts = Array(game.specialMax + 1).fill(0);
+  const specialGap = Array(game.specialMax + 1).fill(Infinity);
+  specialEra.forEach((d, i) => {
+    specialCounts[d.special]++;
+    if (specialGap[d.special] === Infinity) specialGap[d.special] = i;
+  });
+
+  const whiteExpected = (whiteEra.length * 5) / game.whiteMax;
+  const specialExpected = specialEra.length / game.specialMax;
+
+  const wChi = chiSquare(whiteCounts.slice(1), whiteExpected);
+  const sChi = chiSquare(specialCounts.slice(1), specialExpected);
+
+  const rank = (counts, gaps) => {
+    const balls = [];
+    for (let n = 1; n < counts.length; n++) balls.push({ n, count: counts[n], gap: gaps[n] });
+    return {
+      hot: [...balls].sort((a, b) => b.count - a.count || a.n - b.n).slice(0, 5),
+      cold: [...balls].sort((a, b) => a.count - b.count || a.n - b.n).slice(0, 5),
+      overdue: [...balls].sort((a, b) => b.gap - a.gap || a.n - b.n).slice(0, 5),
+    };
+  };
+
+  return {
+    whiteEraDraws: whiteEra.length, specialEraDraws: specialEra.length,
+    whiteCounts, whiteGap, specialCounts, specialGap,
+    whiteExpected, specialExpected,
+    white: rank(whiteCounts, whiteGap), special: rank(specialCounts, specialGap),
+    whiteChi: { x: wChi, df: game.whiteMax - 1, p: chiSquareP(wChi, game.whiteMax - 1) },
+    specialChi: { x: sChi, df: game.specialMax - 1, p: chiSquareP(sChi, game.specialMax - 1) },
+    latest: draws[0] || null,
+    totalDraws: draws.length,
+  };
+}
+
+async function loadGame(key, { force = false } = {}) {
+  const game = GAMES[key];
+  const fresh = state.fetchedAt[key] && Date.now() - state.fetchedAt[key] < 30 * 60 * 1000;
+  if (state.draws[key] && fresh && !force) return;
+  $("main").dataset.loading = "1";
+  try {
+    const res = await fetch(game.api, { headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty dataset");
+    state.draws[key] = parseRows(game, rows);
+    state.stats[key] = computeStats(game, state.draws[key]);
+    state.fetchedAt[key] = Date.now();
+    state.fetchErr[key] = null;
+  } catch (e) {
+    state.fetchErr[key] = e.message || String(e);
+  } finally {
+    delete $("main").dataset.loading;
+  }
+}
+
+/* ============================== tooltip ================================ */
+
+const tooltip = $("tooltip");
+function showTooltip(evt, valueText, lines) {
+  tooltip.replaceChildren(
+    el("div", { class: "tt-value" }, valueText),
+    ...lines.map((l) => el("div", { class: "tt-line" }, l)),
+  );
+  tooltip.style.display = "block";
+  const pad = 14, r = tooltip.getBoundingClientRect();
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  if (evt.clientX == null && evt.target) { // keyboard focus
+    const b = evt.target.getBoundingClientRect();
+    x = b.left + b.width / 2; y = b.top - r.height - 8;
+  }
+  if (x + r.width > innerWidth - 8) x = Math.max(8, x - r.width - 2 * pad);
+  if (y + r.height > innerHeight - 8) y = Math.max(8, y - r.height - 2 * pad);
+  tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+}
+function hideTooltip() { tooltip.style.display = "none"; }
+
+/* =============================== charts ================================ */
+
+function renderFreqChart(container, opts) {
+  const { counts, gaps, expected, draws, isSpecial } = opts;
+  const n = counts.length - 1;
+  const width = Math.max(320, container.clientWidth || 640);
+  const m = { t: 18, r: 10, b: 24, l: 38 };
+  const innerW = width - m.l - m.r, innerH = 190;
+  const height = innerH + m.t + m.b;
+
+  const maxVal = Math.max(expected, ...counts.slice(1)) * 1.08 || 1;
+  const tickStep = niceStep(maxVal / 4);
+  const yMax = Math.ceil(maxVal / tickStep) * tickStep;
+  const y = (v) => m.t + innerH - (v / yMax) * innerH;
+
+  const band = innerW / n;
+  const barW = Math.max(1.5, Math.min(24, band - 2));
+
+  const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, width, height, role: "img",
+    "aria-label": `Frequency of each ball across ${NF.format(draws)} drawings` });
+
+  // gridlines + y ticks
+  for (let v = 0; v <= yMax + 1e-9; v += tickStep) {
+    const yy = y(v);
+    svg.append(el("line", { class: "grid", x1: m.l, x2: width - m.r, y1: yy, y2: yy }));
+    svg.append(el("text", { x: m.l - 6, y: yy + 3.5, "text-anchor": "end" }, NF.format(v)));
+  }
+
+  // bars (rounded cap, square baseline; ≥2px surface gap via band padding)
+  let maxBall = 1;
+  for (let b = 1; b <= n; b++) if (counts[b] > counts[maxBall]) maxBall = b;
+
+  const bars = [];
+  for (let b = 1; b <= n; b++) {
+    const h = ((counts[b] || 0) / yMax) * innerH;
+    const x0 = m.l + (b - 1) * band + (band - barW) / 2;
+    const y0 = m.t + innerH - h;
+    const r = Math.min(3, barW / 2, h);
+    const d = h <= 0 ? "" :
+      `M${x0},${y0 + h} L${x0},${y0 + r} Q${x0},${y0} ${x0 + r},${y0} L${x0 + barW - r},${y0} Q${x0 + barW},${y0} ${x0 + barW},${y0 + r} L${x0 + barW},${y0 + h} Z`;
+    const bar = el("path", { class: "bar", d });
+    svg.append(bar); bars[b] = bar;
+  }
+
+  // expected reference line + label
+  const ey = y(expected);
+  svg.append(el("line", { class: "ref", x1: m.l, x2: width - m.r, y1: ey, y2: ey }));
+  svg.append(el("text", { class: "reflabel", x: width - m.r, y: ey - 4, "text-anchor": "end" },
+    `expected ≈ ${expected >= 20 ? Math.round(expected) : (Math.round(expected * 10) / 10)}`));
+
+  // selective direct label: the single hottest ball
+  const capX = m.l + (maxBall - 1) * band + band / 2;
+  svg.append(el("text", { class: "caplabel", x: capX, y: y(counts[maxBall]) - 4, "text-anchor": "middle" },
+    String(counts[maxBall])));
+
+  // baseline + x tick labels
+  svg.append(el("line", { class: "axis", x1: m.l, x2: width - m.r, y1: m.t + innerH, y2: m.t + innerH }));
+  const labelEvery = band * 5 >= 26 ? 5 : 10;
+  for (let b = 1; b <= n; b++) {
+    if (b === 1 || b === n || b % labelEvery === 0) {
+      svg.append(el("text", { x: m.l + (b - 1) * band + band / 2, y: m.t + innerH + 15, "text-anchor": "middle" }, String(b)));
+    }
+  }
+
+  // hit targets: full band height, keyboard focusable, tooltip on hover+focus
+  for (let b = 1; b <= n; b++) {
+    const share = draws ? (isSpecial ? counts[b] / draws : counts[b] / draws) : 0;
+    const gapTxt = gaps[b] === Infinity ? "never drawn in this era"
+      : gaps[b] === 0 ? "drawn in the latest drawing" : `last seen ${NF.format(gaps[b])} draws ago`;
+    const lines = [
+      `Ball ${b}`,
+      `expected ≈ ${Math.round(expected * 10) / 10} · appears in ${(share * 100).toFixed(1)}% of draws`,
+      gapTxt,
+    ];
+    const valueText = `${NF.format(counts[b] || 0)} draws`;
+    const hit = el("rect", {
+      class: "hit", x: m.l + (b - 1) * band, y: m.t, width: band, height: innerH,
+      tabindex: "0", role: "img", "aria-label": `Ball ${b}: ${counts[b] || 0} draws; ${gapTxt}`,
+      onpointermove: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines); },
+      onpointerleave: () => { bars[b].classList.remove("hover"); hideTooltip(); },
+      onfocus: (e) => { bars[b].classList.add("hover"); showTooltip(e, valueText, lines); },
+      onblur: () => { bars[b].classList.remove("hover"); hideTooltip(); },
+    });
+    svg.append(hit);
+  }
+
+  container.replaceChildren(svg);
+}
+
+function niceStep(raw) {
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9))));
+  for (const mult of [1, 2, 2.5, 5, 10]) if (mag * mult >= raw) return mag * mult;
+  return mag * 10;
+}
+
+function renderFreqTable(container, counts, gaps, draws, expected) {
+  const table = el("table", {},
+    el("thead", {}, el("tr", {},
+      el("th", {}, "Ball"), el("th", { class: "num" }, "Draws"),
+      el("th", { class: "num" }, "Share of draws"), el("th", { class: "num" }, "Expected"),
+      el("th", { class: "num" }, "Last seen (draws ago)"))));
+  const tbody = el("tbody");
+  for (let b = 1; b < counts.length; b++) {
+    tbody.append(el("tr", {},
+      el("td", {}, String(b)),
+      el("td", { class: "num" }, NF.format(counts[b] || 0)),
+      el("td", { class: "num" }, draws ? ((counts[b] / draws) * 100).toFixed(1) + "%" : "—"),
+      el("td", { class: "num" }, String(Math.round(expected * 10) / 10)),
+      el("td", { class: "num" }, gaps[b] === Infinity ? "never" : NF.format(gaps[b]))));
+  }
+  table.append(tbody);
+  container.replaceChildren(table);
+}
+
+/* ============================== rendering ============================== */
+
+let countdownTimer = null;
+
+function renderBallRow(container, whites, special, gameKey) {
+  container.replaceChildren(
+    ...whites.map((n) => el("span", { class: "ball" }, String(n))),
+    el("span", { class: `ball special-${gameKey}`, title: GAMES[gameKey].specialName }, String(special)),
+  );
+}
+
+function renderDrawCard(game, stats) {
+  const info = drawInfo(game);
+  $("drawTitle").textContent = `Next ${game.name} drawing`;
+  $("drawSub").textContent = `Drawings are held ${game.drawTimeLabel}.`;
+
+  const banner = $("drawBanner");
+  banner.replaceChildren();
+  if (info.isTonight) {
+    banner.append(el("div", { class: "banner" },
+      el("strong", {}, "Drawing tonight. "),
+      `Everything on this page reflects the complete draw history through ${stats?.latest ? fmtDateLong(stats.latest.date) : "the most recent drawing"} — ` +
+      `and tonight’s probabilities are identical to every other drawing’s.`,
+      el("span", { class: "badge" }, "TONIGHT")));
+  } else if (info.prevIso && stats?.latest && stats.latest.date < info.prevIso &&
+             Date.now() - info.prev.epoch < 36 * 3600 * 1000) {
+    banner.append(el("div", { class: "banner" },
+      el("strong", {}, "Results pending: "),
+      `the ${fmtDateLong(info.prevIso)} drawing has taken place but the source dataset hasn’t posted it yet. This page re-checks hourly.`));
+  }
+
+  const tiles = $("drawTiles");
+  tiles.replaceChildren(
+    tile("Next drawing", info.next ? fmtDrawDate(info.next.epoch) : "—", null),
+    tile("Countdown", "", null, "countdownValue"),
+    tile("Drawings analyzed", stats ? NF.format(stats.totalDraws) : "—",
+      stats ? `${NF.format(stats.whiteEraDraws)} in the current number format` : null),
+    tile("Chance any single ticket wins something", oddsStr(anyPrizeProb(game)), "across all prize tiers"),
+  );
+
+  if (countdownTimer) clearInterval(countdownTimer);
+  const tick = () => {
+    const nfo = drawInfo(game);
+    const elv = $("countdownValue");
+    if (!elv || !nfo.next) return;
+    let ms = nfo.next.epoch - Date.now();
+    if (ms < 0) ms = 0;
+    const d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24,
+          mi = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
+    elv.textContent = (d > 0 ? d + "d " : "") + pad2(h) + "h " + pad2(mi) + "m " + pad2(s) + "s";
+  };
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+
+  if (stats?.latest) {
+    $("latestSub").textContent = `${fmtDateLong(stats.latest.date)} — the most recent drawing in the dataset.`;
+    renderBallRow($("latestBalls"), stats.latest.whites, stats.latest.special, game.key);
+  } else if (state.fetchErr[game.key]) {
+    $("latestSub").textContent = "";
+    $("latestBalls").replaceChildren(
+      el("span", { class: "fetcherr" }, `Couldn’t load draw history (${state.fetchErr[game.key]}). `),
+      el("button", { class: "act", onclick: () => refresh(true) }, "Retry"));
+  } else {
+    $("latestSub").textContent = "Loading…";
+    $("latestBalls").replaceChildren();
+  }
+}
+
+function tile(label, value, note, valueId) {
+  const v = el("div", { class: "value" + (valueId === "countdownValue" ? " clock" : "") }, value);
+  if (valueId) v.id = valueId;
+  const t = el("div", { class: "tile" }, el("div", { class: "label" }, label), v);
+  if (note) t.append(el("div", { class: "note" }, note));
+  return t;
+}
+
+function renderOddsCard(game) {
+  $("oddsSub").textContent =
+    `${game.name} draws 5 white balls from 1–${game.whiteMax} plus 1 ${game.specialName} from 1–${game.specialMax}: ` +
+    `${NF.format(jackpotCombos(game))} equally likely combinations.`;
+  $("heroOdds").textContent = "1 in " + NF.format(jackpotCombos(game));
+
+  const table = el("table", {},
+    el("thead", {}, el("tr", {},
+      el("th", {}, "Match"), el("th", {}, "Prize"),
+      el("th", { class: "num" }, "Probability"), el("th", { class: "num" }, "Odds"))),
+    el("tbody", {}, ...game.tiers.map((t) => {
+      const p = tierProb(game, t.w, t.s);
+      return el("tr", {},
+        el("td", {}, `${t.w} white${t.s ? " + " + game.specialName : ""}`),
+        el("td", {}, t.prize),
+        el("td", { class: "num" }, fmtPct(p)),
+        el("td", { class: "num" }, oddsStr(p)));
+    }),
+    el("tr", {},
+      el("td", {}, el("strong", {}, "Any prize")), el("td", {}, "—"),
+      el("td", { class: "num" }, (anyPrizeProb(game) * 100).toFixed(2) + "%"),
+      el("td", { class: "num" }, el("strong", {}, oddsStr(anyPrizeProb(game)))))));
+  $("tierTable").replaceChildren(table);
+  $("tierNote").textContent = game.tierNote;
+}
+
+function renderFreqCard(game, stats) {
+  $("freqSub").textContent = stats
+    ? `Every number drawn across ${NF.format(stats.totalDraws)} ${game.name} drawings in the dataset. Frequencies below are limited to draws under the current number format so the comparison is fair.`
+    : "Waiting for draw history…";
+
+  $("whiteChartTitle").textContent = `White balls (1–${game.whiteMax})`;
+  $("specialChartTitle").textContent = `${game.specialName} (1–${game.specialMax})`;
+
+  if (!stats) {
+    $("whiteChart").replaceChildren(); $("specialChart").replaceChildren();
+    $("whiteChartSub").textContent = ""; $("specialChartSub").textContent = "";
+    $("hotcold").replaceChildren();
+    return;
+  }
+  $("whiteChartSub").textContent = `${NF.format(stats.whiteEraDraws)} drawings ${game.whiteEraLabel}. The hairline marks the count a perfectly fair game expects for every ball.`;
+  $("specialChartSub").textContent = `${NF.format(stats.specialEraDraws)} drawings ${game.specialEraLabel}.`;
+
+  renderFreqChart($("whiteChart"), {
+    counts: stats.whiteCounts, gaps: stats.whiteGap, expected: stats.whiteExpected,
+    draws: stats.whiteEraDraws, isSpecial: false,
+  });
+  const sp = $("specialChart");
+  sp.className = `chart special-${game.key}`;
+  renderFreqChart(sp, {
+    counts: stats.specialCounts, gaps: stats.specialGap, expected: stats.specialExpected,
+    draws: stats.specialEraDraws, isSpecial: true,
+  });
+  renderFreqTable($("whiteTable"), stats.whiteCounts, stats.whiteGap, stats.whiteEraDraws, stats.whiteExpected);
+  renderFreqTable($("specialTable"), stats.specialCounts, stats.specialGap, stats.specialEraDraws, stats.specialExpected);
+
+  const mini = (b, cap) => el("span", { class: "miniball" }, String(b.n), el("small", {}, cap));
+  $("hotcold").replaceChildren(
+    el("div", {}, el("h3", {}, "Hottest white balls"),
+      el("div", { class: "miniballs" }, ...stats.white.hot.map((b) => mini(b, `${b.count}×`)))),
+    el("div", {}, el("h3", {}, "Coldest white balls"),
+      el("div", { class: "miniballs" }, ...stats.white.cold.map((b) => mini(b, `${b.count}×`)))),
+    el("div", {}, el("h3", {}, "Most overdue white balls"),
+      el("div", { class: "miniballs" }, ...stats.white.overdue.map((b) =>
+        mini(b, b.gap === Infinity ? "never" : `${b.gap} ago`)))),
+  );
+}
+
+/* ------------------------------ generator ------------------------------ */
+
+function sampleWithoutReplacement(weights, k) {
+  const idx = weights.map((w, i) => i).filter((i) => i >= 1);
+  const picked = [];
+  const w = weights.slice();
+  for (let j = 0; j < k; j++) {
+    const total = idx.reduce((s, i) => s + w[i], 0);
+    let r = Math.random() * total;
+    let chosen = idx[idx.length - 1];
+    for (const i of idx) { r -= w[i]; if (r <= 0) { chosen = i; break; } }
+    picked.push(chosen);
+    idx.splice(idx.indexOf(chosen), 1);
+  }
+  return picked.sort((a, b) => a - b);
+}
+
+const PICK_MODES = {
+  hot: {
+    label: "Hot pick — the 5 most frequently drawn white balls and the most-drawn special ball.",
+    make(game, stats) {
+      return { whites: stats.white.hot.map((b) => b.n).sort((a, b) => a - b), special: stats.special.hot[0].n };
+    },
+  },
+  overdue: {
+    label: "Overdue pick — the balls that have gone longest without being drawn.",
+    make(game, stats) {
+      return { whites: stats.white.overdue.map((b) => b.n).sort((a, b) => a - b), special: stats.special.overdue[0].n };
+    },
+  },
+  weighted: {
+    label: "Frequency-weighted random — random, but hot numbers are proportionally more likely to be chosen.",
+    make(game, stats) {
+      const w = stats.whiteCounts.map((c) => c + 1);
+      const s = stats.specialCounts.map((c) => c + 1);
+      return { whites: sampleWithoutReplacement(w, 5), special: sampleWithoutReplacement(s, 1)[0] };
+    },
+  },
+  random: {
+    label: "Pure quick pick — uniform random, exactly like the terminal at the store.",
+    make(game) {
+      const w = Array(game.whiteMax + 1).fill(1);
+      const s = Array(game.specialMax + 1).fill(1);
+      return { whites: sampleWithoutReplacement(w, 5), special: sampleWithoutReplacement(s, 1)[0] };
+    },
+  },
+};
+
+function renderPickCard(game, stats) {
+  $("pickDisclaim").textContent =
+    `The honest part: every one of these strategies produces a ticket with exactly the same 1 in ${NF.format(jackpotCombos(game))} jackpot probability. ` +
+    `“Hot” and “overdue” describe the past — they carry zero information about the next drawing.`;
+  for (const btn of document.querySelectorAll("#pickCard [data-mode]")) {
+    const needsStats = btn.dataset.mode !== "random";
+    btn.disabled = needsStats && !stats;
+  }
+  // keep the current pick across background refreshes; clear only on game switch
+  const card = $("pickCard");
+  if (card.dataset.game !== game.key) {
+    card.dataset.game = game.key;
+    $("pickBalls").replaceChildren();
+    $("pickMode").textContent = "";
+  }
+}
+
+function doPick(mode) {
+  const game = GAMES[state.game], stats = state.stats[state.game];
+  const m = PICK_MODES[mode];
+  if (!m || (mode !== "random" && !stats)) return;
+  const pick = m.make(game, stats);
+  renderBallRow($("pickBalls"), pick.whites, pick.special, game.key);
+  $("pickMode").textContent = m.label;
+}
+
+/* ------------------------------- checker ------------------------------- */
+
+function renderCheckCard(game) {
+  $("checkSub").textContent =
+    `Enter 5 white balls (1–${game.whiteMax}) and a ${game.specialName} (1–${game.specialMax}) to see the ticket’s exact probability and whether it has ever won.`;
+  // keep the user's typed numbers across background refreshes; rebuild only on game switch
+  const card = $("checkCard");
+  if (card.dataset.game === game.key) return;
+  card.dataset.game = game.key;
+  const row = $("checkInputs");
+  row.replaceChildren();
+  for (let i = 0; i < 5; i++) {
+    row.append(el("input", { type: "number", min: "1", max: String(game.whiteMax),
+      id: "chk-w" + i, "aria-label": `White ball ${i + 1}`, placeholder: "–" }));
+  }
+  row.append(el("input", { type: "number", min: "1", max: String(game.specialMax),
+    id: "chk-s", class: `special-${game.key}`, "aria-label": game.specialName, placeholder: "–" }));
+  $("checkOut").replaceChildren();
+}
+
+function doCheck() {
+  const game = GAMES[state.game];
+  const draws = state.draws[state.game];
+  const out = $("checkOut");
+  const whites = [];
+  for (let i = 0; i < 5; i++) whites.push(Number($("chk-w" + i).value));
+  const special = Number($("chk-s").value);
+
+  const bad = whites.some((n) => !Number.isInteger(n) || n < 1 || n > game.whiteMax) ||
+    !Number.isInteger(special) || special < 1 || special > game.specialMax;
+  if (bad) {
+    out.replaceChildren(el("p", { class: "err" },
+      `Enter five whole numbers from 1–${game.whiteMax} and a ${game.specialName} from 1–${game.specialMax}.`));
+    return;
+  }
+  if (new Set(whites).size !== 5) {
+    out.replaceChildren(el("p", { class: "err" }, "The five white balls must all be different."));
+    return;
+  }
+
+  const sorted = [...whites].sort((a, b) => a - b);
+  const key = sorted.join("-");
+  const nodes = [
+    el("p", {}, el("strong", {}, `Probability this exact ticket wins the next jackpot: 1 in ${NF.format(jackpotCombos(game))}.`),
+      " Identical for every possible ticket — before and after any analysis."),
+  ];
+  if (draws) {
+    const exact = draws.filter((d) => d.special === special && [...d.whites].sort((a, b) => a - b).join("-") === key);
+    const whitesOnly = draws.filter((d) => [...d.whites].sort((a, b) => a - b).join("-") === key);
+    nodes.push(el("p", {}, exact.length
+      ? `This exact combination HAS won before — on ${exact.map((d) => fmtDateLong(d.date)).join(", ")}. (It’s no more or less likely to win again.)`
+      : `This exact combination has never been drawn in ${NF.format(draws.length)} recorded ${game.name} drawings.`));
+    if (!exact.length) {
+      nodes.push(el("p", {}, whitesOnly.length
+        ? `The five white balls did appear together (with a different ${game.specialName}) on ${whitesOnly.map((d) => fmtDateLong(d.date)).join(", ")}.`
+        : `The five white balls have never appeared together either.`));
+    }
+    nodes.push(el("p", { class: "disclaim" },
+      "Tip that actually matters: you can’t raise your odds of winning, but picking numbers above 31 and avoiding obvious patterns reduces the chance of splitting a jackpot with birthday-pickers."));
+  } else {
+    nodes.push(el("p", { class: "disclaim" }, "Draw history unavailable — historical matches can’t be checked right now."));
+  }
+  out.replaceChildren(...nodes);
+}
+
+/* ---------------------------- reality check ---------------------------- */
+
+function renderRealityCard(game, stats) {
+  const body = $("realityBody");
+  const nodes = [];
+  if (stats) {
+    const w = stats.whiteChi, s = stats.specialChi;
+    const fmtP = (p) => (p < 0.001 ? "< 0.001" : p.toFixed(2));
+    const uniform = w.p > 0.05 && s.p > 0.05;
+    nodes.push(el("p", { class: "verdict" },
+      el("strong", {}, `Chi-square test across all ${NF.format(stats.whiteEraDraws)} current-format drawings: `),
+      `white balls χ² = ${w.x.toFixed(1)} (df ${w.df}, p = ${fmtP(w.p)}); ${game.specialName} χ² = ${s.x.toFixed(1)} (df ${s.df}, p = ${fmtP(s.p)}). ` +
+      (uniform
+        ? "The observed frequencies are statistically indistinguishable from a perfectly fair, uniform draw. The “hot” and “cold” numbers above are exactly the amount of noise chance produces."
+        : "Some deviation from uniform appears in this sample — with this many balls, occasional low p-values are themselves expected by chance.")));
+  }
+  nodes.push(
+    el("p", {},
+      el("strong", {}, "Each drawing is independent. "),
+      "The machine has no memory: past results cannot make any number more or less likely next time. Reviewing all available information — which this page genuinely does — changes the probability of the next winning numbers by exactly zero."),
+    el("p", {},
+      el("strong", {}, "So what is this page good for? "),
+      "Knowing the real odds before you spend money, verifying the game behaves fairly (it does — see the test above), checking tickets against history, and generating picks. The one genuinely useful strategy is minimizing jackpot-splitting: unpopular combinations (numbers over 31, no neat patterns) win the same amount less often shared."),
+    el("p", {},
+      el("strong", {}, "Expected value. "),
+      `A ${game.name === "Powerball" ? "$2" : "$5"} ticket returns, on average, well under its price across all prize tiers — the lottery keeps roughly 30–50% of every dollar. Play for fun, never as a plan.`),
+  );
+  body.replaceChildren(...nodes);
+}
+
+/* ============================ orchestration ============================ */
+
+function renderAll() {
+  const game = GAMES[state.game];
+  const stats = state.stats[state.game] || null;
+  renderDrawCard(game, stats);
+  renderOddsCard(game);
+  renderFreqCard(game, stats);
+  renderPickCard(game, stats);
+  renderCheckCard(game);
+  renderRealityCard(game, stats);
+}
+
+async function refresh(force = false) {
+  await loadGame(state.game, { force });
+  renderAll();
+}
+
+function switchGame(key) {
+  if (!GAMES[key] || key === state.game) return;
+  state.game = key;
+  for (const t of document.querySelectorAll(".tab")) {
+    t.setAttribute("aria-pressed", t.dataset.game === key ? "true" : "false");
+  }
+  renderAll();      // instant render with whatever we have
+  refresh();        // then fetch if needed and re-render
+}
+
+document.addEventListener("click", (e) => {
+  const tab = e.target.closest(".tab");
+  if (tab) { switchGame(tab.dataset.game); return; }
+  const pick = e.target.closest("#pickCard [data-mode]");
+  if (pick) { doPick(pick.dataset.mode); return; }
+  if (e.target.closest("#checkBtn")) { doCheck(); return; }
+});
+
+// re-render charts on resize (width-aware SVG)
+let lastW = 0;
+new ResizeObserver(() => {
+  const w = $("whiteChart").clientWidth;
+  if (w && Math.abs(w - lastW) > 4) {
+    lastW = w;
+    const stats = state.stats[state.game];
+    if (stats) renderFreqCard(GAMES[state.game], stats);
+  }
+}).observe($("whiteChart"));
+
+// hourly re-check keeps drawing-day results fresh; also re-check when the tab
+// becomes visible again after being stale
+setInterval(() => refresh(true), 60 * 60 * 1000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.fetchedAt[state.game] &&
+      Date.now() - state.fetchedAt[state.game] > 30 * 60 * 1000) refresh(true);
+});
+
+renderAll();
+refresh();
+
+// test/debug hooks
+window.__lottery = { GAMES, state, comb, tierProb, anyPrizeProb, jackpotCombos,
+  computeStats, chiSquare, chiSquareP, drawInfo, etWallToEpoch, oddsStr };
+</script>
+</body>
+</html>
