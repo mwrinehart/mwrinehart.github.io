@@ -6,6 +6,7 @@ import { complianceOverview } from "@/lib/modules/compliance/scan";
 import { campaignsOverview } from "@/lib/modules/campaigns/campaigns";
 import { pendingApprovalCount } from "@/lib/modules/campaigns/approvals";
 import { studioOverview } from "@/lib/modules/studio/projects";
+import { narrativeOverview } from "@/lib/modules/narrative/scan";
 import { PageHeader, Panel } from "@/components/ui";
 
 // The unified landing page: one live overview across every module — the thing
@@ -13,16 +14,19 @@ import { PageHeader, Panel } from "@/components/ui";
 // the module; the "needs attention" strip surfaces the actionable counts.
 export default async function DashboardPage() {
   const { orgId, role } = await requireTenant();
-  const [behavior, compliance, campaigns, pendingApprovals, studio] = await Promise.all([
+  const [behavior, compliance, campaigns, pendingApprovals, studio, narrative] = await Promise.all([
     riskOverview(orgId),
     complianceOverview(orgId),
     campaignsOverview(orgId),
     pendingApprovalCount(orgId),
     studioOverview(orgId),
+    narrativeOverview(orgId),
   ]);
 
   const atRisk = behavior.bands.high + behavior.bands.critical;
   const attention = [
+    narrative.openAlerts > 0 && { href: "/narrative/alerts", label: "Narrative alerts open", count: narrative.openAlerts },
+    narrative.pendingResponses > 0 && { href: "/narrative/responses", label: "Counter-responses awaiting approval", count: narrative.pendingResponses },
     pendingApprovals > 0 && { href: "/campaigns/approvals", label: "Campaign approvals waiting", count: pendingApprovals },
     compliance.unanalyzed > 0 && { href: "/compliance", label: "Findings to analyze", count: compliance.unanalyzed },
     compliance.critical > 0 && { href: "/compliance", label: "Critical compliance findings", count: compliance.critical },
@@ -33,7 +37,7 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title="Platform overview"
-        subtitle="One workspace for human-risk, compliance, content, and campaign simulation."
+        subtitle="One workspace for human-risk, compliance, content, campaign simulation, and narrative defense."
         action={<span className="text-xs text-jericho-muted self-center">role: {role}</span>}
       />
 
@@ -86,6 +90,14 @@ export default async function DashboardPage() {
           stats={[
             { label: "Courses", value: studio.total },
             { label: "Published", value: studio.published },
+          ]}
+        />
+        <ModuleCard
+          id="narrative"
+          stats={[
+            { label: "Narratives", value: narrative.narratives },
+            { label: "False active", value: narrative.activeFalse },
+            { label: "Open alerts", value: narrative.openAlerts },
           ]}
         />
       </div>

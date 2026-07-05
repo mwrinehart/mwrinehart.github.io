@@ -154,6 +154,31 @@ gov/DoD tenant class, classification banners, and DoD-specific copy are dropped.
 
 **Remaining:** OSINT target workbench and a compliance/jurisdiction dashboard.
 
+## Phase 5 — Narrative (net-new: disinformation monitoring) ✅
+
+The first module built on the spine rather than ported to it — validation that
+the module contract holds for new products, not just rebuilds.
+
+- ✅ **Media monitoring** — per-org watch terms × sources (RSS via the shared
+  feed engine; reddit JSON listings with engagement-based reach), deduped by
+  `(org_id, url)`, SSRF-guarded at save and fetch time.
+- ✅ **Narrative clustering** — pure token-cosine similarity groups paraphrased
+  mentions into narratives (unit-tested thresholds; no opaque ML).
+- ✅ **Veracity assessment** — the shared AI client judges each narrative against
+  an org-maintained verified fact library (verdict/confidence/rationale);
+  analyst overrides always win (compare-and-swap around slow AI writes).
+- ✅ **Threat scoring + alerts** — transparent verdict × reach × velocity score;
+  escalation-only alerting via an atomic `alerted_severity` high-water-mark
+  claim (exactly-once under concurrent scans); in-app queue + budget-capped
+  Slack/Teams/email routes.
+- ✅ **Counter-response workflow** — AI drafts a posture + truth-sandwich message
+  grounded only in the fact library; drafts are human-edited, gate-checked
+  (`evaluateResponseGate` — no auto mode by design), admin-decided atomically,
+  and fully audited. The platform never publishes anything itself.
+
+**Remaining:** additional social connectors (X/Mastodon/Telegram) as API access
+allows, and spread visualization (mention timeline chart) on the detail page.
+
 ## Cross-cutting platform follow-ups
 
 These benefit every module and aren't owned by one:
