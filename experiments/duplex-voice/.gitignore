@@ -1,0 +1,4 @@
+# Local artifacts of the PersonaPlex setup — never commit these
+personaplex/
+.venv/
+out/
