@@ -59,6 +59,15 @@ export const MODULES: ModuleDef[] = [
     sourceApp: "Mirage",
     status: "live",
   },
+  {
+    id: "agents",
+    label: "Agents",
+    blurb: "Unified OpenClaw fleet: pair the agents on your devices, chat with any of them, and broadcast work to all.",
+    icon: "🤖",
+    href: "/agents",
+    sourceApp: "New (OpenClaw)",
+    status: "live",
+  },
 ];
 
 export function getModule(id: string): ModuleDef | undefined {

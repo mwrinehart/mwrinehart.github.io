@@ -9,6 +9,7 @@ single, multi-tenant platform with a shared spine and pluggable modules.
 | **Compliance** | Horizon Scanner | Regulatory & threat-feed scanning, AI summaries, policy mapping, alerting | Live |
 | **Studio** | Make (Content Studio) | eLearning authoring + AI course generation + HTML export (media gen provider-gated) | Live |
 | **Campaigns** | Mirage | Narrative campaign simulation: mission control, autonomy-gated content, approvals, audit | Live |
+| **Agents** | New | Unified OpenClaw fleet: pair the agents running on your devices, chat with any of them, broadcast work to all | Live |
 
 Instead of four apps each re-implementing auth, organizations, RBAC, secret
 storage, notifications, RSS scanning, and an AI client, the platform provides all

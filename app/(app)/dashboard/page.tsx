@@ -6,6 +6,7 @@ import { complianceOverview } from "@/lib/modules/compliance/scan";
 import { campaignsOverview } from "@/lib/modules/campaigns/campaigns";
 import { pendingApprovalCount } from "@/lib/modules/campaigns/approvals";
 import { studioOverview } from "@/lib/modules/studio/projects";
+import { agentsOverview } from "@/lib/modules/agents/gateways";
 import { PageHeader, Panel } from "@/components/ui";
 
 // The unified landing page: one live overview across every module — the thing
@@ -13,12 +14,13 @@ import { PageHeader, Panel } from "@/components/ui";
 // the module; the "needs attention" strip surfaces the actionable counts.
 export default async function DashboardPage() {
   const { orgId, role } = await requireTenant();
-  const [behavior, compliance, campaigns, pendingApprovals, studio] = await Promise.all([
+  const [behavior, compliance, campaigns, pendingApprovals, studio, agents] = await Promise.all([
     riskOverview(orgId),
     complianceOverview(orgId),
     campaignsOverview(orgId),
     pendingApprovalCount(orgId),
     studioOverview(orgId),
+    agentsOverview(orgId),
   ]);
 
   const atRisk = behavior.bands.high + behavior.bands.critical;
@@ -86,6 +88,13 @@ export default async function DashboardPage() {
           stats={[
             { label: "Courses", value: studio.total },
             { label: "Published", value: studio.published },
+          ]}
+        />
+        <ModuleCard
+          id="agents"
+          stats={[
+            { label: "Devices", value: agents.devices },
+            { label: "Online", value: agents.online },
           ]}
         />
       </div>
