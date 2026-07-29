@@ -12,6 +12,50 @@
   --color-jericho-good: #3ecf8e;
   --color-jericho-warn: #f5b54a;
   --color-jericho-bad: #ff5d6c;
+
+  /* Jericho Security brand palette (Learning Center only — the standalone
+     /learning-center app is light-themed per the Jericho Design System:
+     Purple #6119E5, Orange #F4A301 as the single sparing accent, Ink #312956
+     for text, the barely-there purple tint #F4F2FB for surfaces. Line/muted
+     are tints of ink/purple, not new hues). */
+  --color-lc-purple: #6119e5;
+  --color-lc-ink: #312956;
+  --color-lc-amber: #f4a301;
+  --color-lc-tint: #f4f2fb;
+  --color-lc-line: #e5e0f3;
+  --color-lc-muted: #6e668c;
+  --font-lc: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* DM Sans (self-hosted variable font) — the Jericho brand typeface, used only
+   by the Learning Center. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("/learning-center/fonts/dm-sans-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: italic;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("/learning-center/fonts/dm-sans-latin-italic.woff2") format("woff2");
+}
+
+/* The Learning Center is a light-themed island inside a dark-themed app: fix
+   form controls, scrollbars, etc. to light rendering within it. */
+.lc-app {
+  color-scheme: light;
+}
+
+/* Netflix-style rows scroll horizontally without a visible scrollbar. */
+.lc-row-scroll {
+  scrollbar-width: none;
+}
+.lc-row-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 :root {
@@ -25,7 +69,11 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* In @layer base so text-color utilities on links actually apply — an
+   unlayered rule would outrank every Tailwind utility (cascade layers). */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }

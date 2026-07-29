@@ -15,6 +15,15 @@ storage, notifications, RSS scanning, and an AI client, the platform provides al
 of that **once** (`lib/platform/`) and each product becomes a module
 (`lib/modules/`, `app/(app)/<module>/`).
 
+The repo also hosts one **standalone app** (own login, own theme, not part of
+the platform shell): the **Jericho Security Learning Center** at
+`/learning-center` — a Netflix-style learner portal plus a Litmos LMS
+tenant-admin dashboard for team admins (users, assignments, due dates,
+compliance, course duplication into team libraries, assignment rules,
+brand-scoped notifications, leaderboards). Runs against the Litmos REST API, or
+a fully seeded demo tenant when no `LITMOS_API_KEY` is configured. See
+[`docs/LEARNING-CENTER.md`](docs/LEARNING-CENTER.md).
+
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · PostgreSQL + Drizzle
@@ -50,11 +59,13 @@ app/
   login/            sign-in (dev / password / SSO / Google)
   onboarding/       first-org creation
   api/              auth handlers, health
+  learning-center/  standalone Litmos Learning Center (own email-code login, learner + admin UIs)
 lib/
   platform/         the shared spine — db, auth, org/RBAC, secrets, notify, feeds, ai, module registry
   modules/
     behavior/       the CBM rebuild: schema, migrate, risk logic, demo seed
-components/         AppShell + shared UI primitives
+    learning-center/ Litmos API client + demo tenant, LC auth/rules/notifications/duplication
+components/         AppShell + shared UI primitives (+ learning-center/ light-themed kit)
 docs/               ARCHITECTURE, MIGRATION-ROADMAP, MODULE-CONVENTIONS
 ```
 
