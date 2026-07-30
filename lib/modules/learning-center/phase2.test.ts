@@ -81,6 +81,14 @@ describe("combined gamification", () => {
     const merged = mergeGamification([entry("z", 40, 0)], new Map());
     expect(merged[0]).toMatchObject({ TotalPointsEarned: 40, TotalBadgesEarned: 0 });
   });
+
+  it("applies the per-completion bonus only when configured (>0)", () => {
+    const completions = new Map([["a", 4]]);
+    // No bonus by default (pointsPerCompletion defaults to 0).
+    expect(mergeGamification([entry("a", 100, 0)], new Map(), completions)[0].TotalPointsEarned).toBe(100);
+    // 4 completions × 15 = 60 bonus.
+    expect(mergeGamification([entry("a", 100, 0)], new Map(), completions, 15)[0].TotalPointsEarned).toBe(160);
+  });
 });
 
 describe("certificateEligible", () => {

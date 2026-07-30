@@ -9,6 +9,7 @@ import type { LitmosSource } from "./source";
 import { getSource } from "./source";
 import type { LitmosTeam } from "./types";
 import { scopedTeamIds } from "./scope";
+import { tenantRootId } from "./tenant";
 
 export interface AdminContext {
   session: LcSession;
@@ -44,6 +45,16 @@ export function assertTeamInScope(ctx: AdminContext, teamId: string): void {
   if (!ctx.scopeIds.includes(teamId)) {
     throw new Error("That team is outside your admin scope.");
   }
+}
+
+// Tenant-level configuration (branding, SMTP, gamification, certificates, API
+// keys) lives on the tenant ROOT team. An admin may read AND write it only when
+// their scope includes that root — a pure sub-team admin can't. Pages use this
+// to gate the render the same way the server actions gate the write, so reads
+// never leak tenant-wide data a sub-team admin shouldn't see.
+export function tenantScope(ctx: AdminContext, teamId: string): { rootId: string; rootTeam: LitmosTeam | undefined; inScope: boolean } {
+  const rootId = tenantRootId(ctx.allTeams, teamId);
+  return { rootId, rootTeam: ctx.allTeams.find((t) => t.Id === rootId), inScope: ctx.scopeIds.includes(rootId) };
 }
 
 export function teamName(ctx: AdminContext, teamId: string): string {

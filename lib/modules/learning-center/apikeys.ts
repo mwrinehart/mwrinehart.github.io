@@ -11,6 +11,7 @@ import { parseIdList } from "./rules";
 
 export type ApiScope = "read" | "assign";
 const KEY_PREFIX = "lck_";
+const LAST_USED_THROTTLE_MS = 60_000;
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -68,6 +69,11 @@ export async function authenticateApiKey(authorizationHeader: string | null): Pr
   const b = Buffer.from(row.keyHash);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
-  await db.update(lcApiKeys).set({ lastUsedAt: Date.now() }).where(eq(lcApiKeys.id, row.id));
+  // Throttle the last-used write to at most once per minute so a hot key can't
+  // hammer a row-update on every request.
+  const now = Date.now();
+  if (!row.lastUsedAt || now - row.lastUsedAt > LAST_USED_THROTTLE_MS) {
+    await db.update(lcApiKeys).set({ lastUsedAt: now }).where(eq(lcApiKeys.id, row.id));
+  }
   return { teamId: row.teamId, scopes: parseIdList(row.scopes) as ApiScope[], keyId: row.id };
 }

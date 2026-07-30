@@ -120,10 +120,13 @@ async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: Not
   // secret / env resolution.
   const url = input.smtp?.url || secrets.smtpUrl || str("SMTP_URL");
   if (!url) return { status: "skipped", error: "SMTP not configured" };
+  // Strip CR/LF (and quotes from the display name) before composing the From
+  // header, so a stored value can't inject extra headers (BCC, etc.).
+  const noCrlf = (s: string) => s.replace(/[\r\n]/g, "").trim();
   const overrideFrom = input.smtp?.from
     ? input.smtp.fromName
-      ? `"${input.smtp.fromName.replace(/"/g, "")}" <${input.smtp.from}>`
-      : input.smtp.from
+      ? `"${noCrlf(input.smtp.fromName).replace(/"/g, "")}" <${noCrlf(input.smtp.from)}>`
+      : noCrlf(input.smtp.from)
     : null;
   const from = overrideFrom || secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
   const transport = transportFor(url);

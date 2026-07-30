@@ -5,7 +5,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getAdminContext, selectedTeam } from "@/lib/modules/learning-center/context";
+import { getAdminContext, selectedTeam, tenantScope } from "@/lib/modules/learning-center/context";
 import { writeAudit } from "@/lib/modules/learning-center/audit";
 import { buildTeamTree, flattenTeamTree } from "@/lib/modules/learning-center/scope";
 import { getCertConfig, saveCertConfig } from "@/lib/modules/learning-center/certificates";
@@ -36,8 +36,17 @@ export default async function CertificatesPage({
     );
   }
 
-  const rootId = tenantRootId(ctx.allTeams, team.Id);
-  const rootTeam = ctx.allTeams.find((t) => t.Id === rootId);
+  const { rootId, rootTeam, inScope } = tenantScope(ctx, team.Id);
+  if (!inScope) {
+    return (
+      <>
+        <LcPageHeader title="Certificates" />
+        <LcEmpty title="Managed at the tenant level">
+          Certificate settings are configured for the <span className="font-semibold">{rootTeam?.Name ?? rootId}</span> tenant. You administer a sub-team — ask a tenant admin to change them.
+        </LcEmpty>
+      </>
+    );
+  }
   const [config, courses, lps] = await Promise.all([getCertConfig(rootId), ctx.source.listCourses(), ctx.source.listLearningPaths()]);
   const selectedCourses = new Set(parseIdList(config?.courseIds));
   const selectedLps = new Set(parseIdList(config?.learningPathIds));

@@ -8,6 +8,7 @@ import { requireLcSession } from "@/lib/modules/learning-center/auth";
 import { getSource } from "@/lib/modules/learning-center/source";
 import { buildLeaderboard } from "@/lib/modules/learning-center/leaderboard";
 import { badgesForUser, gamificationFlags, listAwards, mergeGamification, totalsByUser } from "@/lib/modules/learning-center/gamify";
+import { gatherTeamProgress } from "@/lib/modules/learning-center/reports";
 import { tenantRootId } from "@/lib/modules/learning-center/tenant";
 import type {
   GamificationSummary,
@@ -84,14 +85,25 @@ export default async function LearnerHome() {
         const awards = await listAwards(rootId, 5000);
         const awardTotals = totalsByUser(awards);
         const myAwards = awardTotals.get(uid) ?? { points: 0, badges: 0 };
+        // The learner's own completion bonus (cheap — from their own courses).
+        const myCompletionBonus = flags.pointsPerCompletion > 0 ? courses.filter((c) => c.Complete).length * flags.pointsPerCompletion : 0;
         const litmosSummary = await source.getUserGamificationSummary(uid);
-        summary = { TotalPointsEarned: litmosSummary.TotalPointsEarned + myAwards.points, TotalBadgesEarned: litmosSummary.TotalBadgesEarned + myAwards.badges };
+        summary = {
+          TotalPointsEarned: litmosSummary.TotalPointsEarned + myAwards.points + myCompletionBonus,
+          TotalBadgesEarned: litmosSummary.TotalBadgesEarned + myAwards.badges,
+        };
         badges = await source.listUserBadges(uid);
         // Dashboard badges earned by this learner, shown alongside Litmos badges.
         dashboardBadges = (await badgesForUser(uid)).map(({ badge }) => ({ emoji: badge.emoji, title: badge.title, description: badge.description ?? "" }));
         leaderboardTeam = flags.showLeaderboard ? (teams[0] ?? null) : null;
         if (leaderboardTeam) {
-          leaderboard = buildLeaderboard(mergeGamification(await source.getTeamGamificationDetails(leaderboardTeam.Id), awardTotals)).slice(0, 5);
+          // The mini-leaderboard applies the completion bonus only when configured.
+          let completions: Map<string, number> | undefined;
+          if (flags.pointsPerCompletion > 0) {
+            const progress = await gatherTeamProgress(source, [leaderboardTeam.Id]);
+            completions = new Map(progress.members.map((m) => [m.user.Id, m.completed]));
+          }
+          leaderboard = buildLeaderboard(mergeGamification(await source.getTeamGamificationDetails(leaderboardTeam.Id), awardTotals, completions, flags.pointsPerCompletion)).slice(0, 5);
         }
       } catch {
         // Litmos gamification off; fall back to dashboard awards only.

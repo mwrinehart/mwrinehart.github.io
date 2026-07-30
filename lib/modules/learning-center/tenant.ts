@@ -119,11 +119,16 @@ export async function saveTenantSmtp(tenantRootTeamId: string, smtp: TenantSmtp 
   }
   const url = smtp.url.trim();
   if (!/^smtps?:\/\//i.test(url)) throw new Error("SMTP URL must start with smtp:// or smtps://");
+  // Reject CR/LF in the from address / name so they can never reach an email
+  // header (defense in depth alongside the sink-side stripping in notify()).
+  const from = smtp.from?.replace(/[\r\n]/g, "").trim() || undefined;
+  const fromName = smtp.fromName?.replace(/[\r\n]/g, "").trim() || undefined;
+  if (from && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from)) throw new Error("From address must be a valid email like training@example.com.");
   await upsertTenantSettings(
     tenantRootTeamId,
     {
-      smtpEncrypted: encryptJson({ url, from: smtp.from?.trim() || undefined, fromName: smtp.fromName?.trim() || undefined }),
-      smtpFromHint: smtp.from?.trim() || null,
+      smtpEncrypted: encryptJson({ url, from, fromName }),
+      smtpFromHint: from || null,
     },
     updatedBy,
   );

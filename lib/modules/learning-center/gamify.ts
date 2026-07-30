@@ -11,6 +11,7 @@ import type { LitmosSource } from "./source";
 import type { TeamGamificationEntry } from "./types";
 import { descendantTeamIds } from "./scope";
 import { gatherTeamProgress } from "./reports";
+import { normalizeHexColor } from "./tenant";
 
 export type BadgeCriteria = "manual" | "course_completed" | "courses_count";
 
@@ -41,7 +42,7 @@ export async function createBadge(input: BadgeInput): Promise<string> {
     title: input.title.trim(),
     description: input.description?.trim() || null,
     emoji: input.emoji.trim() || "★",
-    color: input.color,
+    color: normalizeHexColor(input.color) ?? "#6119E5",
     criteriaType: input.criteriaType,
     criteriaCourseId: input.criteriaType === "course_completed" ? (input.criteriaCourseId ?? null) : null,
     criteriaCount: input.criteriaType === "courses_count" ? Math.max(1, input.criteriaCount ?? 1) : null,

@@ -19,7 +19,8 @@ export async function POST(req: Request): Promise<Response> {
     const user = await ctx.source.findUserByEmail(email);
     if (!user) throw new ApiError(404, "No user with that email.");
     // Tenancy: the target must belong to this key's tenant subtree.
-    if (!ctx.memberIds.has(user.Id)) throw new ApiError(403, "That user is not in this tenant.");
+    const memberIds = await ctx.memberIds();
+    if (!memberIds.has(user.Id)) throw new ApiError(403, "That user is not in this tenant.");
 
     const courses = await ctx.source.listCourses();
     if (!courses.some((c) => c.Id === courseId)) throw new ApiError(404, "Unknown courseId.");

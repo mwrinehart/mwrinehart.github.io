@@ -10,6 +10,8 @@ import { writeAudit } from "@/lib/modules/learning-center/audit";
 import { buildTeamTree, childTeams, flattenTeamTree } from "@/lib/modules/learning-center/scope";
 import { buildLeaderboard, rankSubTeams } from "@/lib/modules/learning-center/leaderboard";
 import { gamificationFlags, listAwards, mergeGamification, totalsByUser } from "@/lib/modules/learning-center/gamify";
+import { descendantTeamIds } from "@/lib/modules/learning-center/scope";
+import { gatherTeamProgress } from "@/lib/modules/learning-center/reports";
 import { tenantRootId } from "@/lib/modules/learning-center/tenant";
 import { isGamificationDisabled, type TeamGamificationEntry } from "@/lib/modules/learning-center/types";
 import { TeamPicker } from "@/components/learning-center/TeamPicker";
@@ -43,10 +45,20 @@ export default async function LeaderboardsPage({
   const [awards, flags] = await Promise.all([listAwards(rootId, 5000), gamificationFlags(rootId)]);
   const awardTotals = totalsByUser(awards);
 
+  // The per-completion bonus needs each member's completed-course count — only
+  // gathered (one fan-out) when the tenant actually configured a bonus.
+  let completions: Map<string, number> | undefined;
+  if (flags.pointsPerCompletion > 0) {
+    const teamScope = [team.Id, ...descendantTeamIds(ctx.allTeams, [team.Id])].filter((id) => ctx.scopeIds.includes(id));
+    const progress = await gatherTeamProgress(ctx.source, teamScope);
+    completions = new Map(progress.members.map((m) => [m.user.Id, m.completed]));
+  }
+  const merge = (rows: TeamGamificationEntry[]) => mergeGamification(rows, awardTotals, completions, flags.pointsPerCompletion);
+
   let entries: TeamGamificationEntry[] = [];
   let disabled = false;
   try {
-    entries = mergeGamification(await ctx.source.getTeamGamificationDetails(team.Id), awardTotals);
+    entries = merge(await ctx.source.getTeamGamificationDetails(team.Id));
   } catch (e) {
     if (isGamificationDisabled(e)) disabled = true;
     else throw e;
@@ -58,7 +70,7 @@ export default async function LeaderboardsPage({
     subTeams.map(async (t) => ({
       teamId: t.Id,
       teamName: t.Name,
-      entries: mergeGamification(await ctx.source.getTeamGamificationDetails(t.Id).catch(() => [] as TeamGamificationEntry[]), awardTotals),
+      entries: merge(await ctx.source.getTeamGamificationDetails(t.Id).catch(() => [] as TeamGamificationEntry[])),
     })),
   );
   const standings = rankSubTeams(subEntries);

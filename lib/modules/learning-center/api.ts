@@ -11,7 +11,9 @@ export interface ApiContext {
   auth: AuthenticatedKey;
   source: LitmosSource;
   scopeTeamIds: string[];
-  memberIds: Set<string>;
+  // The tenant's member ids, resolved lazily (one Litmos fan-out) only when a
+  // route needs to enforce membership — the read routes never call it.
+  memberIds(): Promise<Set<string>>;
 }
 
 export class ApiError extends Error {
@@ -30,10 +32,17 @@ export async function authorizeRequest(req: Request, required: ApiScope): Promis
   const source = await getSource();
   const allTeams = await source.listTeams();
   const scopeTeamIds = [auth.teamId, ...descendantTeamIds(allTeams, [auth.teamId])];
-  const memberIds = new Set<string>();
-  for (const tid of scopeTeamIds) {
-    for (const u of await source.listTeamUsers(tid).catch(() => [])) memberIds.add(u.Id);
-  }
+
+  let memberCache: Set<string> | null = null;
+  const memberIds = async (): Promise<Set<string>> => {
+    if (memberCache) return memberCache;
+    const ids = new Set<string>();
+    for (const tid of scopeTeamIds) {
+      for (const u of await source.listTeamUsers(tid).catch(() => [])) ids.add(u.Id);
+    }
+    memberCache = ids;
+    return ids;
+  };
   return { auth, source, scopeTeamIds, memberIds };
 }
 

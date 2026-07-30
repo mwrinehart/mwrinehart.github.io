@@ -6,7 +6,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getAdminContext, assertUserInScope, selectedTeam } from "@/lib/modules/learning-center/context";
+import { getAdminContext, assertUserInScope, selectedTeam, tenantScope } from "@/lib/modules/learning-center/context";
 import { writeAudit } from "@/lib/modules/learning-center/audit";
 import { buildTeamTree, descendantTeamIds, flattenTeamTree } from "@/lib/modules/learning-center/scope";
 import { getTenantSettings, saveTenantGamification, tenantRootId } from "@/lib/modules/learning-center/tenant";
@@ -48,8 +48,17 @@ export default async function GamificationPage({
     );
   }
 
-  const rootId = tenantRootId(ctx.allTeams, team.Id);
-  const rootTeam = ctx.allTeams.find((t) => t.Id === rootId);
+  const { rootId, rootTeam, inScope } = tenantScope(ctx, team.Id);
+  if (!inScope) {
+    return (
+      <>
+        <LcPageHeader title="Gamification" />
+        <LcEmpty title="Managed at the tenant level">
+          Gamification is configured for the <span className="font-semibold">{rootTeam?.Name ?? rootId}</span> tenant. You administer a sub-team — ask a tenant admin to change it.
+        </LcEmpty>
+      </>
+    );
+  }
   const [settings, badges, awards, courses] = await Promise.all([
     getTenantSettings(rootId),
     listBadges(rootId),
