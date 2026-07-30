@@ -53,6 +53,13 @@ export interface NotifyInput {
   html?: string;
   /** Module id that triggered the send (for the audit log). */
   module?: string;
+  /**
+   * Optional per-call SMTP override (email only). When set, this transport is
+   * used instead of the org-secret / env SMTP resolution — lets a caller send
+   * from a specific tenant's own mail server. `url` is a nodemailer connection
+   * string; `from` overrides the sender address.
+   */
+  smtp?: { url: string; from?: string; fromName?: string };
 }
 
 export interface NotifyResult {
@@ -109,9 +116,16 @@ async function sendTeams(secrets: OrgSecrets, target: string | undefined, input:
 
 async function sendEmail(secrets: OrgSecrets, to: string | undefined, input: NotifyInput): Promise<NotifyResult> {
   if (!to) return { status: "skipped", error: "no recipient" };
-  const url = secrets.smtpUrl || str("SMTP_URL");
+  // A per-call SMTP override (a tenant's own mail server) wins over the org
+  // secret / env resolution.
+  const url = input.smtp?.url || secrets.smtpUrl || str("SMTP_URL");
   if (!url) return { status: "skipped", error: "SMTP not configured" };
-  const from = secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
+  const overrideFrom = input.smtp?.from
+    ? input.smtp.fromName
+      ? `"${input.smtp.fromName.replace(/"/g, "")}" <${input.smtp.from}>`
+      : input.smtp.from
+    : null;
+  const from = overrideFrom || secrets.smtpFrom || str("SMTP_FROM") || "no-reply@jerichosecurity.com";
   const transport = transportFor(url);
   // A URL-string transport sets no socket timeout; race the send so a hung mail
   // server can't stall the digest/cron tick indefinitely.

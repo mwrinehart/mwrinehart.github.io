@@ -127,5 +127,89 @@ export async function migrateLearningCenter(client: PoolClient): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_lc_audit_created ON lc_audit_log(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_lc_audit_team ON lc_audit_log(team_id, created_at DESC);
+
+    -- phase 2: per-course templates + rule notification actions
+    ALTER TABLE lc_notification_templates ADD COLUMN IF NOT EXISTS course_id TEXT;
+    ALTER TABLE lc_assignment_rules ADD COLUMN IF NOT EXISTS send_template_type TEXT;
+    ALTER TABLE lc_assignment_rules ADD COLUMN IF NOT EXISTS notify_audience TEXT;
+
+    -- phase 2: tenant-level configuration (tenant = top-level Litmos team)
+    CREATE TABLE IF NOT EXISTS lc_tenant_settings (
+      team_id TEXT PRIMARY KEY,
+      portal_name TEXT,
+      logo_url TEXT,
+      primary_color TEXT,
+      welcome_message TEXT,
+      smtp_encrypted TEXT,
+      smtp_from_hint TEXT,
+      gamification_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      show_leaderboard BOOLEAN NOT NULL DEFAULT TRUE,
+      points_per_completion INTEGER NOT NULL DEFAULT 0,
+      updated_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lc_badges (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      emoji TEXT NOT NULL DEFAULT '★',
+      color TEXT NOT NULL DEFAULT '#6119E5',
+      criteria_type TEXT NOT NULL, -- manual | course_completed | courses_count
+      criteria_course_id TEXT,
+      criteria_count INTEGER,
+      bonus_points INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lc_badges_team ON lc_badges(team_id);
+
+    CREATE TABLE IF NOT EXISTS lc_awards (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL,
+      litmos_user_id TEXT NOT NULL,
+      badge_id TEXT,
+      points INTEGER NOT NULL DEFAULT 0,
+      reason TEXT,
+      awarded_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lc_awards_team ON lc_awards(team_id);
+    CREATE INDEX IF NOT EXISTS idx_lc_awards_user ON lc_awards(litmos_user_id);
+    -- one auto-award per badge per user (bare bonus points have NULL badge_id
+    -- and are exempt from the uniqueness rule)
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_awards_badge_user ON lc_awards(badge_id, litmos_user_id) WHERE badge_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS lc_certificate_config (
+      team_id TEXT PRIMARY KEY,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      title_text TEXT NOT NULL DEFAULT 'Certificate of Completion',
+      message_text TEXT NOT NULL DEFAULT 'has successfully completed',
+      signer_name TEXT,
+      signer_title TEXT,
+      scope TEXT NOT NULL DEFAULT 'all', -- all | selected
+      course_ids TEXT NOT NULL DEFAULT '[]',
+      learning_path_ids TEXT NOT NULL DEFAULT '[]',
+      updated_by TEXT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lc_api_keys (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      scopes TEXT NOT NULL DEFAULT '["read"]',
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      last_used_at BIGINT,
+      revoked_at BIGINT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_api_keys_hash ON lc_api_keys(key_hash);
+    CREATE INDEX IF NOT EXISTS idx_lc_api_keys_team ON lc_api_keys(team_id);
   `);
 }

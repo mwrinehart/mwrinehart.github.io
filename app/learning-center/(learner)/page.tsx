@@ -7,6 +7,8 @@ import Link from "next/link";
 import { requireLcSession } from "@/lib/modules/learning-center/auth";
 import { getSource } from "@/lib/modules/learning-center/source";
 import { buildLeaderboard } from "@/lib/modules/learning-center/leaderboard";
+import { badgesForUser, gamificationFlags, listAwards, mergeGamification, totalsByUser } from "@/lib/modules/learning-center/gamify";
+import { tenantRootId } from "@/lib/modules/learning-center/tenant";
 import type {
   GamificationSummary,
   LitmosBadge,
@@ -50,13 +52,16 @@ export default async function LearnerHome() {
   let teams: LitmosTeam[] = [];
   let summary: GamificationSummary | null = null;
   let badges: LitmosBadge[] = [];
+  let dashboardBadges: Array<{ emoji: string; title: string; description: string }> = [];
   let leaderboard: LeaderboardRow[] = [];
   let leaderboardTeam: LitmosTeam | null = null;
   const library: Array<{ course: LitmosCourse; teamName: string }> = [];
+  let allTeamsForGamify: LitmosTeam[] = [];
 
   if (session.litmosUserId) {
     const uid = session.litmosUserId;
     [courses, lps, teams] = await Promise.all([source.listUserCourses(uid), source.listUserLearningPaths(uid), source.listUserTeams(uid)]);
+    allTeamsForGamify = await source.listTeams().catch(() => []);
 
     const assignedIds = new Set(courses.map((c) => c.Id));
     for (const team of teams) {
@@ -71,15 +76,34 @@ export default async function LearnerHome() {
       }
     }
 
-    try {
-      summary = await source.getUserGamificationSummary(uid);
-      badges = await source.listUserBadges(uid);
-      leaderboardTeam = teams[0] ?? null;
-      if (leaderboardTeam) {
-        leaderboard = buildLeaderboard(await source.getTeamGamificationDetails(leaderboardTeam.Id)).slice(0, 5);
+    // Tenant gamification config: hide the strip entirely if disabled.
+    const rootId = tenantRootId(allTeamsForGamify, teams[0]?.Id ?? "");
+    const flags = await gamificationFlags(teams.length ? rootId : null);
+    if (flags.enabled) {
+      try {
+        const awards = await listAwards(rootId, 5000);
+        const awardTotals = totalsByUser(awards);
+        const myAwards = awardTotals.get(uid) ?? { points: 0, badges: 0 };
+        const litmosSummary = await source.getUserGamificationSummary(uid);
+        summary = { TotalPointsEarned: litmosSummary.TotalPointsEarned + myAwards.points, TotalBadgesEarned: litmosSummary.TotalBadgesEarned + myAwards.badges };
+        badges = await source.listUserBadges(uid);
+        // Dashboard badges earned by this learner, shown alongside Litmos badges.
+        dashboardBadges = (await badgesForUser(uid)).map(({ badge }) => ({ emoji: badge.emoji, title: badge.title, description: badge.description ?? "" }));
+        leaderboardTeam = flags.showLeaderboard ? (teams[0] ?? null) : null;
+        if (leaderboardTeam) {
+          leaderboard = buildLeaderboard(mergeGamification(await source.getTeamGamificationDetails(leaderboardTeam.Id), awardTotals)).slice(0, 5);
+        }
+      } catch {
+        // Litmos gamification off; fall back to dashboard awards only.
+        try {
+          const awards = await listAwards(rootId, 5000);
+          const myAwards = totalsByUser(awards).get(uid) ?? { points: 0, badges: 0 };
+          if (myAwards.points || myAwards.badges) summary = { TotalPointsEarned: myAwards.points, TotalBadgesEarned: myAwards.badges };
+          dashboardBadges = (await badgesForUser(uid)).map(({ badge }) => ({ emoji: badge.emoji, title: badge.title, description: badge.description ?? "" }));
+        } catch {
+          summary = null;
+        }
       }
-    } catch {
-      summary = null; // gamification disabled for the tenant
     }
   }
 
@@ -168,14 +192,18 @@ export default async function LearnerHome() {
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-lc-muted">Badges</div>
-            <div className="flex gap-1.5 mt-1">
-              {badges.length ? (
-                badges.slice(0, 6).map((b) => (
-                  <span key={b.Id + b.Title} title={`${b.Title} — ${b.Description ?? ""}`} className="rounded-full bg-lc-tint px-2.5 py-1 text-xs font-semibold text-lc-ink">
-                    ★ {b.Title}
-                  </span>
-                ))
-              ) : (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {dashboardBadges.map((b) => (
+                <span key={`d-${b.title}`} title={`${b.title} — ${b.description}`} className="rounded-full bg-lc-purple/10 px-2.5 py-1 text-xs font-semibold text-lc-purple">
+                  {b.emoji} {b.title}
+                </span>
+              ))}
+              {badges.slice(0, 6).map((b) => (
+                <span key={b.Id + b.Title} title={`${b.Title} — ${b.Description ?? ""}`} className="rounded-full bg-lc-tint px-2.5 py-1 text-xs font-semibold text-lc-ink">
+                  ★ {b.Title}
+                </span>
+              ))}
+              {!badges.length && !dashboardBadges.length && (
                 <span className="text-sm text-lc-muted">None yet — complete courses to earn badges.</span>
               )}
             </div>

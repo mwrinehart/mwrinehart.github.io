@@ -64,9 +64,13 @@ export default async function RulesPage({
     const intervalDays = Number(formData.get("intervalDays") ?? "7");
     const courseIds = formData.getAll("courseIds").map(String).filter(Boolean);
     const lpIds = formData.getAll("lpIds").map(String).filter(Boolean);
+    const sendTemplateTypeRaw = String(formData.get("sendTemplateType") ?? "");
+    const sendTemplateType = ["welcome", "assignment", "due_reminder", "compliance_reminder", "custom"].includes(sendTemplateTypeRaw) ? sendTemplateTypeRaw : null;
+    const notifyAudienceRaw = String(formData.get("notifyAudience") ?? "");
+    const notifyAudience = ["affected", "all", "overdue", "compliance_risk"].includes(notifyAudienceRaw) ? notifyAudienceRaw : null;
     if (!name) back(teamId, { error: "Give the rule a name." });
     if (!["member_joined", "schedule"].includes(trigger)) back(teamId, { error: "Invalid trigger." });
-    if (!courseIds.length && !lpIds.length) back(teamId, { error: "Pick at least one course or learning path." });
+    if (!courseIds.length && !lpIds.length && !sendTemplateType) back(teamId, { error: "Pick at least one course, learning path, or a notification to send." });
     const rule = await createRule({
       teamId,
       teamName: teamName(c, teamId),
@@ -77,6 +81,8 @@ export default async function RulesPage({
       learningPathIds: lpIds,
       includeSubteams: formData.get("includeSubteams") === "on",
       sendLitmosEmail: formData.get("sendLitmosEmail") === "on",
+      sendTemplateType,
+      notifyAudience,
       createdBy: c.session.email,
     });
     await writeAudit(c.session, { action: "rule_created", targetType: "rule", targetId: rule.id, targetLabel: name, teamId });
@@ -152,6 +158,11 @@ export default async function RulesPage({
                             LP: {nameOf(id)}
                           </LcBadge>
                         ))}
+                        {rule.sendTemplateType && (
+                          <LcBadge tone="amber">
+                            ✉ {rule.sendTemplateType.replaceAll("_", " ")} → {(rule.notifyAudience ?? "affected").replaceAll("_", " ")}
+                          </LcBadge>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
@@ -246,6 +257,26 @@ export default async function RulesPage({
             <label className="flex items-center gap-2 text-xs text-lc-muted font-medium">
               <input type="checkbox" name="sendLitmosEmail" className="accent-lc-purple" /> Send the Litmos assignment email
             </label>
+
+            <div className="border-t border-lc-line pt-3">
+              <div className="text-xs font-semibold text-lc-ink mb-1.5">Notification action (optional)</div>
+              <p className="text-[11px] text-lc-muted mb-2">Rules can also send a notification — on its own or alongside the assignment.</p>
+              <select name="sendTemplateType" className={`${lcSelectCls} mb-2`} defaultValue="">
+                <option value="">No notification</option>
+                <option value="assignment">Send assignment email</option>
+                <option value="custom">Send custom message</option>
+                <option value="due_reminder">Send due-date reminder</option>
+                <option value="compliance_reminder">Send compliance reminder</option>
+                <option value="welcome">Send welcome / login link</option>
+              </select>
+              <select name="notifyAudience" className={lcSelectCls} defaultValue="affected">
+                <option value="affected">To affected members (new joiners / this team)</option>
+                <option value="all">To everyone in scope</option>
+                <option value="overdue">To members with overdue training</option>
+                <option value="compliance_risk">To members with compliance at risk</option>
+              </select>
+            </div>
+
             <button type="submit" className={lcBtnPrimary}>
               Create rule
             </button>

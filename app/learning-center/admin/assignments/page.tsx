@@ -5,9 +5,9 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getAdminContext, assertTeamInScope, assertUserInScope, selectedTeam, teamName } from "@/lib/modules/learning-center/context";
+import { getAdminContext, assertTeamInScope, assertUserInScope, memberIdsForTeams, selectedTeam, teamName } from "@/lib/modules/learning-center/context";
 import { writeAudit } from "@/lib/modules/learning-center/audit";
-import { buildTeamTree, flattenTeamTree } from "@/lib/modules/learning-center/scope";
+import { buildTeamTree, descendantTeamIds, flattenTeamTree } from "@/lib/modules/learning-center/scope";
 import { TeamPicker } from "@/components/learning-center/TeamPicker";
 import { LcBadge, LcEmpty, LcFlash, LcPageHeader, LcPanel, LcTable, lcBtnGhost, lcBtnPrimary, lcSelectCls } from "@/components/learning-center/ui";
 
@@ -128,36 +128,62 @@ export default async function AssignmentsPage({
     back(teamId, { ok: `"${label}" unassigned.` });
   }
 
-  async function assignToMember(formData: FormData) {
+  async function assignToPeople(formData: FormData) {
     "use server";
     const c = await getAdminContext();
     const teamId = String(formData.get("team") ?? "");
     assertTeamInScope(c, teamId);
-    const userId = String(formData.get("userId") ?? "");
     // Option values are "course:<id>" or "lp:<id>" so kind can never mismatch.
     const content = String(formData.get("content") ?? "");
     const [kind, contentId] = content.includes(":") ? [content.slice(0, content.indexOf(":")), content.slice(content.indexOf(":") + 1)] : ["", ""];
     const sendMessage = formData.get("sendMessage") === "on";
-    if (!userId || !contentId || !["course", "lp"].includes(kind)) back(teamId, { error: "Pick a member and a course or learning path." });
-    await assertUserInScope(c, userId);
-    const users = await c.source.listTeamUsers(teamId);
-    const user = users.find((u) => u.Id === userId);
-    try {
-      if (kind === "course") await c.source.assignCoursesToUser(userId, [contentId], sendMessage);
-      else await c.source.assignLearningPathsToUser(userId, [contentId]);
-    } catch (e) {
-      back(teamId, { error: e instanceof Error ? e.message : "Assignment failed." });
+    const audience = String(formData.get("audience") ?? "");
+    if (!contentId || !["course", "lp"].includes(kind)) back(teamId, { error: "Pick a course or learning path." });
+
+    // Resolve the target user ids from the audience: one member, everyone in
+    // the team, or everyone in the team + all sub-teams (the tenant subtree).
+    let userIds: string[] = [];
+    let label = "";
+    if (audience === "individual") {
+      const userId = String(formData.get("userId") ?? "");
+      if (!userId) back(teamId, { error: "Pick a member." });
+      await assertUserInScope(c, userId);
+      userIds = [userId];
+      const users = await c.source.listTeamUsers(teamId);
+      label = users.find((u) => u.Id === userId)?.Email ?? "member";
+    } else if (audience === "team") {
+      userIds = await memberIdsForTeams(c, [teamId]);
+      label = `everyone in ${teamName(c, teamId)}`;
+    } else if (audience === "everyone") {
+      const scope = [teamId, ...descendantTeamIds(c.allTeams, [teamId])].filter((id) => c.scopeIds.includes(id));
+      userIds = await memberIdsForTeams(c, scope);
+      label = `everyone in ${teamName(c, teamId)} + sub-teams`;
+    } else {
+      back(teamId, { error: "Choose who to assign to." });
+    }
+    if (!userIds.length) back(teamId, { error: "No members matched that audience." });
+
+    let ok = 0;
+    const errors: string[] = [];
+    for (const uid of userIds) {
+      try {
+        if (kind === "course") await c.source.assignCoursesToUser(uid, [contentId], sendMessage);
+        else await c.source.assignLearningPathsToUser(uid, [contentId]);
+        ok++;
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
     }
     await writeAudit(c.session, {
-      action: kind === "course" ? "course_assigned_to_user" : "lp_assigned_to_user",
-      targetType: "user",
-      targetId: userId,
-      targetLabel: user?.Email ?? userId,
+      action: kind === "course" ? "course_assigned_to_people" : "lp_assigned_to_people",
+      targetType: kind === "course" ? "course" : "learning_path",
+      targetId: contentId,
+      targetLabel: label,
       teamId,
-      detail: `Content ${contentId}${sendMessage ? " (Litmos email sent)" : ""}`,
+      detail: `${ok}/${userIds.length} assigned${sendMessage ? " (Litmos email sent)" : ""}${errors.length ? `; ${errors.length} failed` : ""}`,
     });
     revalidatePath("/learning-center/admin/assignments");
-    back(teamId, { ok: `Assigned to ${user?.Email ?? "member"}.` });
+    back(teamId, ok ? { ok: `Assigned to ${ok} of ${userIds.length} (${label}).` } : { error: `Assignment failed: ${errors[0] ?? "unknown error"}` });
   }
 
   return (
@@ -284,14 +310,17 @@ export default async function AssignmentsPage({
           </LcPanel>
 
           <LcPanel className="mt-4">
-            <h3 className="font-bold text-lc-ink mb-1">Assign to one person</h3>
-            <p className="text-xs text-lc-muted mb-3">For individual needs outside the team-wide requirements.</p>
-            <form action={assignToMember} className="space-y-2.5">
+            <h3 className="font-bold text-lc-ink mb-1">Assign to individuals, a group, or everyone</h3>
+            <p className="text-xs text-lc-muted mb-3">Directly enroll people in a course or learning path.</p>
+            <form action={assignToPeople} className="space-y-2.5">
               <input type="hidden" name="team" value={team.Id} />
-              <select name="userId" required className={lcSelectCls} defaultValue="">
-                <option value="" disabled>
-                  Choose a member…
-                </option>
+              <select name="audience" required className={lcSelectCls} defaultValue="individual">
+                <option value="individual">One member…</option>
+                <option value="team">Everyone in {team.Name}</option>
+                <option value="everyone">Everyone in {team.Name} + all sub-teams</option>
+              </select>
+              <select name="userId" className={lcSelectCls} defaultValue="">
+                <option value="">(member — only for &quot;One member&quot;)</option>
                 {members.map((m) => (
                   <option key={m.Id} value={m.Id}>
                     {m.FirstName} {m.LastName} — {m.Email}

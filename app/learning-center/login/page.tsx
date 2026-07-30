@@ -49,7 +49,7 @@ export default async function LearningCenterLogin({
       <div className="hidden lg:flex w-[44%] bg-lc-purple text-white flex-col justify-between p-12">
         <div className="inline-flex items-center gap-3">
           <span className="inline-flex items-center justify-center rounded-xl bg-white p-1.5">
-            <Image src="/learning-center/logo-icon.png" alt="" width={30} height={30} />
+            <Image src="/learning-center/logo-icon.png" alt="" width={30} height={30} unoptimized />
           </span>
           <span className="text-lg font-bold">Jericho Security</span>
         </div>
@@ -65,7 +65,7 @@ export default async function LearningCenterLogin({
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <Image src="/learning-center/logo-icon.png" alt="Jericho Security" width={28} height={28} />
+            <Image src="/learning-center/logo-icon.png" alt="Jericho Security" width={28} height={28} unoptimized />
             <span className="font-bold">Jericho Security Learning Center</span>
           </div>
 

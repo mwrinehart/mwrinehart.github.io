@@ -45,7 +45,7 @@ function ago(ms: number): string {
 export default async function NotificationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ team?: string; edit?: string; ok?: string; error?: string }>;
+  searchParams: Promise<{ team?: string; edit?: string; course?: string; ok?: string; error?: string }>;
 }) {
   const params = await searchParams;
   const ctx = await getAdminContext();
@@ -59,12 +59,18 @@ export default async function NotificationsPage({
     );
   }
 
-  const [brand, templates, sends, members] = await Promise.all([
+  const [brand, allTemplates, sends, members, teamCourses] = await Promise.all([
     getTeamBrand(ctx.source, team.Id),
     listTemplates(team.Id),
     listSends(ctx.isOwner ? null : ctx.scopeIds, 30),
     ctx.source.listTeamUsers(team.Id),
+    ctx.source.listTeamCourses(team.Id),
   ]);
+  // Course scope: "" = team defaults; a course id = per-course overrides.
+  const courseScope = params.course && teamCourses.some((c) => c.Id === params.course) ? params.course : "";
+  const templates = allTemplates.filter((t) => (t.courseId ?? "") === courseScope);
+  const scopeCourse = courseScope ? teamCourses.find((c) => c.Id === courseScope) : null;
+
   const teamOptions = flattenTeamTree(buildTeamTree(ctx.allTeams, ctx.scopeIds));
   const editType = params.edit && isTemplateType(params.edit) ? params.edit : null;
   const editing = editType ? (templates.find((t) => t.type === editType) ?? null) : null;
@@ -79,7 +85,8 @@ export default async function NotificationsPage({
     if (!brandInfo.manageable) back(teamId, { error: "This team uses a Jericho-managed brand — its notification templates are managed centrally." });
     const type = String(formData.get("type") ?? "");
     if (!isTemplateType(type)) back(teamId, { error: "Invalid template type." });
-    const existing = (await listTemplates(teamId)).find((t) => t.type === type);
+    const courseId = String(formData.get("courseId") ?? "") || null;
+    const existing = (await listTemplates(teamId, courseId)).find((t) => t.type === type);
     const name = String(formData.get("name") ?? "").trim();
     const subject = String(formData.get("subject") ?? "").trim();
     const body = String(formData.get("body") ?? "").trim();
@@ -89,15 +96,16 @@ export default async function NotificationsPage({
       teamId,
       brand: brandInfo.brand,
       type,
+      courseId,
       name,
       subject,
       body,
       active: formData.get("active") === "on",
       updatedBy: c.session.email,
     });
-    await writeAudit(c.session, { action: existing ? "template_updated" : "template_created", targetType: "template", targetLabel: `${type}: ${name}`, teamId });
+    await writeAudit(c.session, { action: existing ? "template_updated" : "template_created", targetType: "template", targetLabel: `${type}: ${name}${courseId ? " (course)" : ""}`, teamId });
     revalidatePath("/learning-center/admin/notifications");
-    back(teamId, { ok: `Template "${name}" saved.` });
+    back(teamId, { ok: `Template "${name}" saved.`, ...(courseId ? { course: courseId } : {}) });
   }
 
   async function removeTemplate(formData: FormData) {
@@ -195,9 +203,36 @@ export default async function NotificationsPage({
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <section className="space-y-4">
-          <h2 className="text-lg font-bold text-lc-ink">Templates</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-bold text-lc-ink">Templates</h2>
+            <form method="GET" className="flex items-center gap-2 text-sm">
+              <input type="hidden" name="team" value={team.Id} />
+              <span className="text-xs font-semibold text-lc-muted">Editing</span>
+              <select name="course" defaultValue={courseScope} className="rounded-lg border border-lc-line bg-white px-2.5 py-1.5 text-xs font-medium max-w-56">
+                <option value="">Team default templates</option>
+                {teamCourses.filter((c) => !c.CourseTeamLibrary).map((c) => (
+                  <option key={c.Id} value={c.Id}>
+                    Course: {c.Name}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className={lcBtnSecondary}>
+                Go
+              </button>
+            </form>
+          </div>
+          {scopeCourse ? (
+            <p className="text-xs text-lc-muted">
+              Editing per-course overrides for <span className="font-semibold text-lc-ink">{scopeCourse.Name}</span>. Where no override exists, the team
+              default (then the built-in default) is used.
+            </p>
+          ) : (
+            <p className="text-xs text-lc-muted">Editing the team default templates. Pick a course above to override messaging for that course.</p>
+          )}
           {TEMPLATE_TYPES.map(({ type, label, hint }) => {
             const tpl = templates.find((t) => t.type === type);
+            const editHref = `/learning-center/admin/notifications?team=${encodeURIComponent(team.Id)}${courseScope ? `&course=${encodeURIComponent(courseScope)}` : ""}&edit=${type}`;
+            const cancelHref = `/learning-center/admin/notifications?team=${encodeURIComponent(team.Id)}${courseScope ? `&course=${encodeURIComponent(courseScope)}` : ""}`;
             return (
               <LcPanel key={type}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -219,7 +254,7 @@ export default async function NotificationsPage({
                   </div>
                   {brand.manageable && (
                     <div className="flex gap-1 shrink-0">
-                      <a href={`/learning-center/admin/notifications?team=${encodeURIComponent(team.Id)}&edit=${type}`} className={lcBtnGhost}>
+                      <a href={editHref} className={lcBtnGhost}>
                         {tpl ? "Edit" : "Customize"}
                       </a>
                       {tpl && (
@@ -240,6 +275,7 @@ export default async function NotificationsPage({
                   <form action={save} className="mt-4 border-t border-lc-line pt-4 space-y-2.5">
                     <input type="hidden" name="team" value={team.Id} />
                     <input type="hidden" name="type" value={type} />
+                    <input type="hidden" name="courseId" value={courseScope} />
                     <input type="text" name="name" defaultValue={editDefaults.name} required placeholder="Template name" className={lcInputCls} />
                     <input type="text" name="subject" defaultValue={editDefaults.subject} required placeholder="Email subject" className={lcInputCls} />
                     <textarea name="body" defaultValue={editDefaults.body} required rows={7} className={`${lcInputCls} font-mono text-xs`} />
@@ -255,7 +291,7 @@ export default async function NotificationsPage({
                       <button type="submit" className={lcBtnPrimary}>
                         Save template
                       </button>
-                      <a href={`/learning-center/admin/notifications?team=${encodeURIComponent(team.Id)}`} className={lcBtnSecondary}>
+                      <a href={cancelHref} className={lcBtnSecondary}>
                         Cancel
                       </a>
                     </div>

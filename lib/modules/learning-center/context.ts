@@ -70,3 +70,18 @@ export async function assertUserInScope(ctx: AdminContext, litmosUserId: string)
     throw new Error("That user is outside your admin scope.");
   }
 }
+
+// Distinct member ids across a set of scoped teams (used by "assign to
+// everyone"). Only teams already in scope are read.
+export async function memberIdsForTeams(ctx: AdminContext, teamIds: string[]): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const teamId of teamIds) {
+    if (!ctx.scopeIds.includes(teamId)) continue;
+    try {
+      for (const u of await ctx.source.listTeamUsers(teamId)) ids.add(u.Id);
+    } catch {
+      // team unavailable — skip
+    }
+  }
+  return [...ids];
+}

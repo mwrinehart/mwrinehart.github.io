@@ -22,6 +22,7 @@ import {
 import type { LitmosSource } from "./source";
 import { getSource } from "./source";
 import { descendantTeamIds } from "./scope";
+import type { SendRecipient, TemplateType } from "./notifications";
 
 const DAY = 86_400_000;
 
@@ -35,6 +36,9 @@ export interface RuleInput {
   learningPathIds: string[];
   includeSubteams: boolean;
   sendLitmosEmail: boolean;
+  // Optional notification action: rules drive courses AND notifications.
+  sendTemplateType?: string | null; // template type to send, or null
+  notifyAudience?: string | null; // affected | all | overdue | compliance_risk
   createdBy: string;
 }
 
@@ -108,6 +112,8 @@ export async function createRule(input: RuleInput): Promise<LcAssignmentRuleRow>
     learningPathIds: JSON.stringify(input.learningPathIds),
     includeSubteams: input.includeSubteams,
     sendLitmosEmail: input.sendLitmosEmail,
+    sendTemplateType: input.sendTemplateType ?? null,
+    notifyAudience: input.notifyAudience ?? null,
     active: !isMemberJoined, // member_joined stays inactive until seeded
     createdBy: input.createdBy,
     createdAt: now,
@@ -167,14 +173,55 @@ async function recordRun(ruleId: string, status: "success" | "failed" | "skipped
   await db.insert(lcRuleRuns).values({ id: randomUUID(), ruleId, ranAt: Date.now(), status, assignedCount, detail });
 }
 
+// The notification action of a rule: send the configured template to the
+// chosen audience. `affectedUserIds` is the set a member_joined rule just
+// touched; schedule rules resolve their audience from live status.
+async function runRuleNotification(rule: LcAssignmentRuleRow, source: LitmosSource, affectedUserIds: string[]): Promise<string> {
+  const templateType = rule.sendTemplateType;
+  if (!templateType) return "";
+  const { sendNotification } = await import("./notifications");
+  const { gatherTeamProgress } = await import("./reports");
+
+  const teamIds = [rule.teamId, ...(rule.includeSubteams ? descendantTeamIds(await source.listTeams(), [rule.teamId]) : [])];
+  const audience = rule.notifyAudience ?? "affected";
+
+  let recipients: SendRecipient[];
+  if (audience === "affected" && affectedUserIds.length) {
+    const affected = new Set(affectedUserIds);
+    const members = (await Promise.all(teamIds.map((t) => source.listTeamUsers(t).catch(() => [])))).flat();
+    recipients = members.filter((m) => affected.has(m.Id)).map((user) => ({ user }));
+  } else {
+    const progress = await gatherTeamProgress(source, teamIds);
+    let members = progress.members;
+    if (audience === "overdue") members = members.filter((m) => m.overdue > 0);
+    else if (audience === "compliance_risk") members = members.filter((m) => m.lapsed > 0 || m.expiringSoon > 0);
+    recipients = members.map((m) => ({ user: m.user }));
+  }
+  // Dedupe by user id.
+  const byId = new Map(recipients.map((r) => [r.user.Id, r]));
+  const list = [...byId.values()];
+  if (!list.length) return " Notification: no matching recipients.";
+
+  const outcome = await sendNotification({
+    source,
+    teamId: rule.teamId,
+    teamName: rule.teamName ?? rule.teamId,
+    type: templateType as TemplateType,
+    recipients: list,
+    sentBy: "rule",
+  });
+  return ` Notification (${templateType}): ${outcome.sent} sent${outcome.failed ? `, ${outcome.failed} failed` : ""}${outcome.skipped ? `, ${outcome.skipped} skipped` : ""}.`;
+}
+
 // Run one rule. `force` (the UI's "Run now") bypasses the schedule-cadence
 // check and, for schedule rules, re-runs immediately.
 export async function runRule(rule: LcAssignmentRuleRow, opts: { force?: boolean } = {}): Promise<{ status: string; assigned: number; detail: string }> {
   const source = await getSource();
   const courseIds = parseIdList(rule.courseIds);
   const lpIds = parseIdList(rule.learningPathIds);
-  if (!courseIds.length && !lpIds.length) {
-    await recordRun(rule.id, "skipped", 0, "Rule has no courses or learning paths.");
+  const hasNotification = !!rule.sendTemplateType;
+  if (!courseIds.length && !lpIds.length && !hasNotification) {
+    await recordRun(rule.id, "skipped", 0, "Rule has no courses, learning paths, or notification action.");
     return { status: "skipped", assigned: 0, detail: "no content" };
   }
 
@@ -189,7 +236,8 @@ export async function runRule(rule: LcAssignmentRuleRow, opts: { force?: boolean
       if (lpIds.length) {
         await source.assignLearningPathsToTeam(rule.teamId, lpIds);
       }
-      const detail = `Team-level assignment: ${courseIds.length} course(s), ${lpIds.length} learning path(s).`;
+      const notifyDetail = hasNotification ? await runRuleNotification(rule, source, []) : "";
+      const detail = `Team-level assignment: ${courseIds.length} course(s), ${lpIds.length} learning path(s).${notifyDetail}`;
       await db.update(lcAssignmentRules).set({ lastRunAt: Date.now(), updatedAt: Date.now() }).where(eq(lcAssignmentRules.id, rule.id));
       await recordRun(rule.id, "success", courseIds.length + lpIds.length, detail);
       return { status: "success", assigned: courseIds.length + lpIds.length, detail };
@@ -205,11 +253,14 @@ export async function runRule(rule: LcAssignmentRuleRow, opts: { force?: boolean
 
     let assigned = 0;
     const errors: string[] = [];
+    const processed: string[] = [];
+    const hasAssignmentWork = courseIds.length > 0 || lpIds.length > 0;
     for (const uid of newMembers) {
       try {
         if (courseIds.length) await source.assignCoursesToUser(uid, courseIds, rule.sendLitmosEmail);
         if (lpIds.length) await source.assignLearningPathsToUser(uid, lpIds);
-        assigned++;
+        if (hasAssignmentWork) assigned++;
+        processed.push(uid);
         // Only mark the member seen once their assignment actually succeeded.
         // A transient Litmos failure (e.g. a 503 under the rate limit) must
         // leave them unseen so the next run retries — otherwise a member is
@@ -223,11 +274,13 @@ export async function runRule(rule: LcAssignmentRuleRow, opts: { force?: boolean
       }
     }
 
+    // Notify the new members this rule just processed.
+    const notifyDetail = hasNotification && processed.length ? await runRuleNotification(rule, source, processed) : "";
     const detail = newMembers.length
-      ? `${assigned}/${newMembers.length} new member(s) assigned.${errors.length ? ` Errors: ${errors.slice(0, 3).join("; ")}` : ""}`
+      ? `${hasAssignmentWork ? `${assigned}/${newMembers.length} new member(s) assigned.` : `${processed.length} new member(s).`}${errors.length ? ` Errors: ${errors.slice(0, 3).join("; ")}` : ""}${notifyDetail}`
       : "No new members.";
     await db.update(lcAssignmentRules).set({ lastRunAt: Date.now(), updatedAt: Date.now() }).where(eq(lcAssignmentRules.id, rule.id));
-    await recordRun(rule.id, errors.length && assigned === 0 && newMembers.length ? "failed" : "success", assigned, detail);
+    await recordRun(rule.id, errors.length && assigned === 0 && hasAssignmentWork && newMembers.length ? "failed" : "success", assigned, detail);
     return { status: "success", assigned, detail };
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);

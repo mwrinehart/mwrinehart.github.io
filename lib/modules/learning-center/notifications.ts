@@ -122,12 +122,15 @@ export async function getTeamBrand(source: LitmosSource, teamId: string): Promis
 
 // ─── templates ────────────────────────────────────────────────────────────────
 
-export async function listTemplates(teamId: string): Promise<LcNotificationTemplateRow[]> {
-  return db
+// `courseId` null = team default templates; set = the per-course overrides.
+export async function listTemplates(teamId: string, courseId?: string | null): Promise<LcNotificationTemplateRow[]> {
+  const rows = await db
     .select()
     .from(lcNotificationTemplates)
     .where(eq(lcNotificationTemplates.teamId, teamId))
     .orderBy(desc(lcNotificationTemplates.updatedAt));
+  if (courseId === undefined) return rows;
+  return rows.filter((r) => (r.courseId ?? null) === (courseId ?? null));
 }
 
 export async function saveTemplate(input: {
@@ -135,6 +138,7 @@ export async function saveTemplate(input: {
   teamId: string;
   brand: string | null;
   type: TemplateType;
+  courseId?: string | null;
   name: string;
   subject: string;
   body: string;
@@ -155,6 +159,7 @@ export async function saveTemplate(input: {
     teamId: input.teamId,
     brand: input.brand,
     type: input.type,
+    courseId: input.courseId ?? null,
     name: input.name,
     subject: input.subject,
     body: input.body,
@@ -170,17 +175,25 @@ export async function deleteTemplate(teamId: string, id: string): Promise<void> 
   await db.delete(lcNotificationTemplates).where(and(eq(lcNotificationTemplates.id, id), eq(lcNotificationTemplates.teamId, teamId)));
 }
 
-// Template used for a send: the team's active template of that type, falling
-// back to the built-in default copy.
-export async function templateFor(teamId: string, type: TemplateType): Promise<{ subject: string; body: string; templateId: string | null }> {
+// Template used for a send: a per-course override of that type if one exists
+// and a courseId is in play, else the team default of that type, else the
+// built-in default copy.
+export async function templateFor(
+  teamId: string,
+  type: TemplateType,
+  courseId?: string | null,
+): Promise<{ subject: string; body: string; templateId: string | null }> {
   const rows = await db
     .select()
     .from(lcNotificationTemplates)
     .where(and(eq(lcNotificationTemplates.teamId, teamId), eq(lcNotificationTemplates.type, type), eq(lcNotificationTemplates.active, true)))
-    .orderBy(desc(lcNotificationTemplates.updatedAt))
-    .limit(1);
-  const row = rows[0];
-  if (row) return { subject: row.subject, body: row.body, templateId: row.id };
+    .orderBy(desc(lcNotificationTemplates.updatedAt));
+  if (courseId) {
+    const perCourse = rows.find((r) => r.courseId === courseId);
+    if (perCourse) return { subject: perCourse.subject, body: perCourse.body, templateId: perCourse.id };
+  }
+  const teamDefault = rows.find((r) => !r.courseId);
+  if (teamDefault) return { subject: teamDefault.subject, body: teamDefault.body, templateId: teamDefault.id };
   const d = DEFAULT_TEMPLATES[type];
   return { subject: d.subject, body: d.body, templateId: null };
 }
@@ -218,13 +231,31 @@ export async function sendNotification(opts: {
   type: TemplateType;
   recipients: SendRecipient[];
   sentBy: string;
+  courseId?: string | null;
   subjectOverride?: string;
   bodyOverride?: string;
   extraVars?: Record<string, string | null | undefined>;
+  // The tenant's own mail server, if configured (per-tenant custom SMTP).
+  smtp?: { url: string; from?: string; fromName?: string };
 }): Promise<SendOutcome> {
-  const tpl = await templateFor(opts.teamId, opts.type);
+  const tpl = await templateFor(opts.teamId, opts.type, opts.courseId);
   const subjectTemplate = opts.subjectOverride ?? tpl.subject;
   const bodyTemplate = opts.bodyOverride ?? tpl.body;
+
+  // Use the tenant's own SMTP when configured (unless the caller passed one),
+  // so a team on a custom brand sends from their own address automatically.
+  let smtp = opts.smtp;
+  if (!smtp) {
+    try {
+      const { brandingForTeam, decryptTenantSmtp } = await import("./tenant");
+      const teams = await opts.source.listTeams();
+      const { settings } = await brandingForTeam(teams, opts.teamId);
+      const resolved = decryptTenantSmtp(settings);
+      if (resolved) smtp = resolved;
+    } catch {
+      // fall back to platform SMTP
+    }
+  }
 
   let sent = 0;
   let failed = 0;
@@ -253,6 +284,7 @@ export async function sendNotification(opts: {
       subject: renderTemplate(subjectTemplate, allVars),
       body: renderTemplate(bodyTemplate, allVars),
       module: "learning-center",
+      smtp,
     });
     if (result.status === "sent") {
       sent++;

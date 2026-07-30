@@ -9,6 +9,8 @@ import { getAdminContext, assertTeamInScope, assertUserInScope, selectedTeam } f
 import { writeAudit } from "@/lib/modules/learning-center/audit";
 import { buildTeamTree, childTeams, flattenTeamTree } from "@/lib/modules/learning-center/scope";
 import { buildLeaderboard, rankSubTeams } from "@/lib/modules/learning-center/leaderboard";
+import { gamificationFlags, listAwards, mergeGamification, totalsByUser } from "@/lib/modules/learning-center/gamify";
+import { tenantRootId } from "@/lib/modules/learning-center/tenant";
 import { isGamificationDisabled, type TeamGamificationEntry } from "@/lib/modules/learning-center/types";
 import { TeamPicker } from "@/components/learning-center/TeamPicker";
 import { LcBadge, LcEmpty, LcFlash, LcPageHeader, LcPanel, LcTable, lcBtnGhost } from "@/components/learning-center/ui";
@@ -35,10 +37,16 @@ export default async function LeaderboardsPage({
     );
   }
 
+  // Dashboard awards + completion bonus for the tenant are merged into the
+  // Litmos gamification numbers so the leaderboard reflects everything.
+  const rootId = tenantRootId(ctx.allTeams, team.Id);
+  const [awards, flags] = await Promise.all([listAwards(rootId, 5000), gamificationFlags(rootId)]);
+  const awardTotals = totalsByUser(awards);
+
   let entries: TeamGamificationEntry[] = [];
   let disabled = false;
   try {
-    entries = await ctx.source.getTeamGamificationDetails(team.Id);
+    entries = mergeGamification(await ctx.source.getTeamGamificationDetails(team.Id), awardTotals);
   } catch (e) {
     if (isGamificationDisabled(e)) disabled = true;
     else throw e;
@@ -50,7 +58,7 @@ export default async function LeaderboardsPage({
     subTeams.map(async (t) => ({
       teamId: t.Id,
       teamName: t.Name,
-      entries: await ctx.source.getTeamGamificationDetails(t.Id).catch(() => [] as TeamGamificationEntry[]),
+      entries: mergeGamification(await ctx.source.getTeamGamificationDetails(t.Id).catch(() => [] as TeamGamificationEntry[]), awardTotals),
     })),
   );
   const standings = rankSubTeams(subEntries);
@@ -85,10 +93,14 @@ export default async function LeaderboardsPage({
       />
       <LcFlash ok={params.ok} error={params.error} />
 
-      {disabled ? (
+      {!flags.enabled ? (
+        <LcEmpty title="Gamification is turned off for this tenant">
+          Turn it back on under <span className="font-semibold">Gamification</span> to show points, badges, and leaderboards.
+        </LcEmpty>
+      ) : disabled ? (
         <LcEmpty title="Gamification is turned off for this Litmos account">
-          An account owner can enable it in Litmos under Account Settings → Litmos Features → Gamification. Leaderboards light up here automatically once
-          it&apos;s on.
+          An account owner can enable it in Litmos under Account Settings → Litmos Features → Gamification, or award dashboard badges/points under
+          Gamification. Leaderboards light up here automatically.
         </LcEmpty>
       ) : !board.length ? (
         <LcEmpty title="No gamification activity yet">Points appear as members complete courses that award them.</LcEmpty>

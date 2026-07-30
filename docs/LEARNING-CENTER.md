@@ -47,6 +47,31 @@ learning paths, gamification. Sign in as `matt@jerichosecurity.com` (owner),
 | **Leaderboards & gamification** | `GET /teams/{id}/gamificationdetails` → computed rankings (points-first, 1224 ties), podium, **sub-team standings by average points**, per-user summary/badges; owner-gated `PUT /users/{id}/gamificationreset`. 403 → "gamification disabled" state |
 | **Everything else** | Overview health metrics, member drill-down, CSV exports (member progress, assignment detail), results feed (`/results/details`), achievements + certificates, full audit log |
 
+## Tenant self-service configuration (phase 2)
+
+A "tenant" is a top-level Litmos team; its configuration applies to the whole
+subtree and is owned by the dashboard (none of it exists in the Litmos API).
+Settings attach to the tenant root and are gated on the acting admin's scope
+including that root.
+
+| Capability | How it works |
+| --- | --- |
+| **Assign to individuals / group / everyone** | The assignments page audience selector: one member, everyone in the team, or everyone in the team + all sub-teams (fans out `POST /users/{id}/courses` per member) |
+| **Per-course notifications + editable defaults** | Notification templates can be team defaults or per-course overrides; a send for a course uses the course override → team default → built-in default |
+| **Rules for courses & notifications** | Rules gained a notification action (`sendTemplateType` + `notifyAudience`: affected / all / overdue / compliance-risk); a rule can assign, notify, or both, on member-join or a schedule |
+| **Custom SMTP per tenant** | `lc_tenant_settings.smtp_encrypted` (AES-256-GCM via the platform master key); `notify()` gained an optional per-call `smtp` override, auto-resolved from the recipient team's tenant root, so a tenant's mail sends from its own address. Write-only URL, test-send button |
+| **Brand the portal** | Tenant portal name, https logo, hex accent color, welcome message — applied to the learner header/hero and certificates. Logo/color validated (https-only, `#rrggbb`) |
+| **Gamification config** | Enable/disable, leaderboard visibility, per-completion bonus points, custom badges (manual / complete-a-course / complete-N-courses) with bonus points; manual awards; auto-award evaluation on the `lc-rules` cron and on demand. Leaderboards merge Litmos points with dashboard awards + completion bonus |
+| **Certificates** | Per-tenant config (title, body line, signer, scope=all/selected). Learners get a print-ready certificate page for eligible completed courses/paths (browser Print → PDF) |
+| **Generate an API key** | Per-tenant keys (`lck_…`, sha256-stored, shown once) scoped to the tenant subtree, authenticating the Learning Center REST API |
+
+### Tenant REST API (`/learning-center/api/v1/*`)
+
+`Authorization: Bearer lck_…`. Every response is scoped to the key's tenant
+subtree. `GET /users`, `GET /courses`, `GET /teams` (read scope); `POST
+/assignments` `{ email, courseId }` (assign scope — the target must belong to
+the key's tenant, else 403). Unknown/revoked key → 401; missing scope → 403.
+
 ## Honest API limitations (surfaced in the UI)
 
 - **No whole-course copy API** — duplication is orchestrated from documented

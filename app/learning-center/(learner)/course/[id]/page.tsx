@@ -10,6 +10,8 @@ import { requireLcSession } from "@/lib/modules/learning-center/auth";
 import { canSelfEnroll, getSource } from "@/lib/modules/learning-center/source";
 import type { DemoLitmosSource } from "@/lib/modules/learning-center/demo";
 import { learnerPortalUrl } from "@/lib/modules/learning-center/config";
+import { certificateEligible, getCertConfig } from "@/lib/modules/learning-center/certificates";
+import { tenantRootId } from "@/lib/modules/learning-center/tenant";
 import { Poster } from "@/components/learning-center/Poster";
 import { LcBadge, LcProgress, lcBtnPrimary, lcBtnSecondary } from "@/components/learning-center/ui";
 
@@ -35,6 +37,26 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   // Self-enroll is offered when the course sits in one of the learner's team
   // libraries and isn't already assigned.
   const eligibleToEnroll = session.litmosUserId && !mine ? await canSelfEnroll(source, session.litmosUserId, id) : false;
+
+  // Certificate offered when the learner completed the course and their tenant
+  // has certificates enabled for it.
+  let showCertificate = false;
+  if (session.litmosUserId && mine?.Complete) {
+    try {
+      const userTeams = await source.listUserTeams(session.litmosUserId);
+      const allTeams = await source.listTeams();
+      const rootIds = [...new Set(userTeams.map((t) => tenantRootId(allTeams, t.Id)))];
+      for (const rootId of rootIds) {
+        const config = await getCertConfig(rootId);
+        if (certificateEligible(config, { courseId: id })) {
+          showCertificate = true;
+          break;
+        }
+      }
+    } catch {
+      // no certificate
+    }
+  }
 
   // Fresh LoginKey per render — it's the working "signed launch link".
   let launchUrl = learnerPortalUrl();
@@ -147,6 +169,11 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                       </button>
                     </form>
                   </>
+                )}
+                {showCertificate && (
+                  <a href={`/learning-center/certificate/${encodeURIComponent(id)}`} className={lcBtnSecondary}>
+                    🏆 View certificate
+                  </a>
                 )}
               </>
             ) : eligibleToEnroll ? (
